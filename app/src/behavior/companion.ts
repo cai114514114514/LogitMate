@@ -16,6 +16,8 @@ export interface CompanionDeps {
   reactions: Reactions;
   mood: Mood;
   map: ExpressionMap;
+  /** Tells her voice which emotion to speak with. */
+  voiceEmotion?: (emotion: string) => void;
   /** Plays a procedural gesture (nod, tilt, ...) by name; false when there is none. */
   procedural?: (action: string) => boolean;
 }
@@ -53,6 +55,7 @@ export class Companion {
         {
           onText: (visible) => ui.say(visible, true, onClick),
           onEmotion: (emotion) => {
+            this.d.voiceEmotion?.(emotion);
             const name = map.emotions.get(emotion);
             if (name) reactions.express(name, 0);
           },
@@ -92,6 +95,7 @@ export class Companion {
         {
           onText: (visible) => ui.say(visible, true),
           onEmotion: (emotion) => {
+            this.d.voiceEmotion?.(emotion);
             mood.onEmotion(emotion);
             const name = map.emotions.get(emotion);
             if (name) reactions.express(name, 0);

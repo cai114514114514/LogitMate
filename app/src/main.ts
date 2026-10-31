@@ -21,6 +21,8 @@ import { profileKey, type LearnedProfile } from "./model/semantics";
 import { PetModel } from "./renderer/petModel";
 import { Stage, startCubism } from "./renderer/stage";
 import { ChatUI } from "./ui/chatUi";
+import { writeBrief } from "./voice/design";
+import { Speaker } from "./voice/speaker";
 import { FocusUI } from "./ui/focusUi";
 
 interface Settings {
@@ -30,6 +32,7 @@ interface Settings {
   y?: number | null;
   characterName?: string | null;
   persona?: string | null;
+  speak?: boolean | null;
 }
 
 /** Model heights for the Size menu, in logical pixels. */
@@ -187,19 +190,30 @@ async function main(): Promise<void> {
     life.mood = mood.state.mood;
   };
   syncLife();
+  // Her voice (MiMo TTS), when a key is set; see voice/.
+  const speaker = new Speaker(learnedKey, zh);
+  const ttsStatus = () => invoke<{ available: boolean; hasVoice: boolean }>("tts_status", { key: learnedKey });
+  speaker.enabled = (await ttsStatus()).available && settings.speak !== false;
+  speaker.onError = (e) => console.warn("[pet] tts", e);
+  let auditioning = false;
   const companion = new Companion({
     chat,
     ui,
     reactions,
     mood,
     map,
+    voiceEmotion: (emotion) => (speaker.emotion = emotion),
     procedural: (action) => {
       if (!(action in GESTURES)) return false;
       life.play(action as GestureName);
       return true;
     },
   });
-  ui.onSpeak = (text, quiet) => life.speak(text, quiet);
+  ui.onSpeak = (text, quiet, fresh) => {
+    if (speaker.enabled && !auditioning) speaker.feed(text, quiet, fresh);
+    life.speak(text, quiet, speaker.enabled || auditioning);
+  };
+  ui.onSpeakEnd = () => speaker.flush();
 
   // Agent Face: coding agents report through the Rust bridge; she reacts without intruding.
   let agentThinking = false;
@@ -237,6 +251,50 @@ async function main(): Promise<void> {
       console.warn("[pet] learning expressions failed", e);
     } finally {
       learning = false;
+    }
+  };
+
+  // Designing her voice: the vision model describes a voice that fits her, MiMo auditions it, the
+  // user keeps one, and later lines clone it (voice/design.ts).
+  const designVoice = async () => {
+    if (!(await ttsStatus()).available) {
+      await message(
+        zh
+          ? "她说话需要小米 MiMo 的 API key：在 platform.xiaomimimo.com 创建一个，然后在项目的 .env 里加一行 mimo_api=你的key，重启 LogitMate。"
+          : "Her voice needs a Xiaomi MiMo API key: create one at platform.xiaomimimo.com, add mimo_api=YOUR_KEY to .env, and restart LogitMate.",
+        { title: zh ? "她的声音" : "Her Voice" },
+      );
+      return;
+    }
+    auditioning = true;
+    try {
+      ui.say(zh ? "（让我想想，我的声音应该是什么样的…）" : "(Let me think about what I should sound like…)", true);
+      const still = await stage.still(() => model.poseStill(null));
+      const brief = await writeBrief(settings.characterName || profile.name, settings.persona, zh, stillJpeg(still));
+      console.info(`[pet] voice brief: ${brief.description}`);
+      for (let i = 1; i <= 4; i++) {
+        ui.say(zh ? `（试音 ${i}…）` : `(Audition ${i}…)`, true);
+        const wav = await invoke<string>("tts_design", { description: brief.description, text: brief.line });
+        ui.say(brief.line, true);
+        await speaker.playWav(wav);
+        ui.done();
+        const keep = await ask(`${zh ? "要用这个声音吗？" : "Keep this voice?"}\n\n${brief.description}`, {
+          title: zh ? "她的声音" : "Her Voice",
+          okLabel: zh ? "就用这个" : "Keep",
+          cancelLabel: i < 4 ? (zh ? "再换一个" : "Try Another") : zh ? "都不要" : "None of These",
+        });
+        if (keep) {
+          await invoke("tts_save_voice", { key: learnedKey, wav });
+          speaker.enabled = settings.speak !== false;
+          toast(zh ? "记住我的声音啦～" : "Voice saved~");
+          return;
+        }
+      }
+      toast(zh ? "没有保存，随时可以再试。" : "Nothing saved; try again anytime.");
+    } catch (e) {
+      ui.say(`${zh ? "声音没设计好…" : "Couldn't design a voice…"} ${String(e).slice(0, 100)}`);
+    } finally {
+      auditioning = false;
     }
   };
 
@@ -346,6 +404,7 @@ async function main(): Promise<void> {
   };
   ui.onSubmit = (text) => {
     life.noteInteraction();
+    speaker.stop();
     if (isLookRequest(text)) void lookAtScreen(text);
     else void companion.talk(text);
   };
@@ -400,6 +459,8 @@ async function main(): Promise<void> {
       const f = life.update(dt, interaction.pointer);
       model.lookAt(f.look.x, f.look.y);
       model.procedural = { offsets: f.offsets, eyeOpen: f.eyeOpen, gaze: f.gaze };
+      life.voice = speaker.mouth();
+      life.voiceBusy = speaker.busy;
       if (life.talking) stage.maxFps = 60;
     },
     afterDraw: () => interaction.afterDraw(),
@@ -418,6 +479,13 @@ async function main(): Promise<void> {
       save({ height: SIZES[id], x: box.x, y: box.y });
     } else if (id === "chat") {
       await ui.openInput();
+    } else if (id === "voice") {
+      await designVoice();
+    } else if (id === "speak-on" || id === "speak-off") {
+      save({ speak: id === "speak-on" });
+      speaker.enabled = id === "speak-on" && (await ttsStatus()).available;
+      if (!speaker.enabled) speaker.stop();
+      if (id === "speak-on" && !speaker.enabled) await designVoice();
     } else if (id === "look") {
       await lookAtScreen(zh ? "看看我的屏幕" : "Take a look at my screen.");
     } else if (id === "focus") {
@@ -470,6 +538,13 @@ async function main(): Promise<void> {
     setInterval(async () => {
       const text = await invoke<string | null>("debug_take_input");
       const focusCmd = text?.match(/^\/focus\s+([\d.]+)\s+(.+)$/);
+      // The voice description she would get, without designing anything.
+      if (text === "/brief") {
+        const still = await stage.still(() => model.poseStill(null));
+        const brief = await writeBrief(settings.characterName || profile.name, settings.persona, zh, stillJpeg(still)).catch((e) => String(e));
+        console.info(`[pet] brief: ${JSON.stringify(brief)}`);
+        return;
+      }
       // Checks the screenshot path without sending anything: saves /tmp/logitmate-shot.jpg.
       if (text === "/shot") {
         const rect = await screenRect();

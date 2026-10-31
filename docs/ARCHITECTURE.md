@@ -17,7 +17,10 @@ Tauri 2 (Rust, app/src-tauri)                     WebView (TypeScript, app/src)
 ├─ agents.rs      Agent Face bridge (127.0.0.1)    ├─ behavior/companion.ts   chat turn ↔ body, greeting, fidgets
 ├─ agent_hooks.rs connect Claude Code / Codex      ├─ behavior/agentFace.ts   reactions to coding agents
 ├─ front_app.rs   frontmost app name (Focus)       ├─ behavior/focus.ts       Focus Partner session rules
-└─ screen.rs      screenshot on request            ├─ brain/look.ts           "look at my screen" requests
+├─ screen.rs      screenshot on request            ├─ brain/look.ts           "look at my screen" requests
+└─ tts.rs         Xiaomi MiMo speech               ├─ voice/speaker.ts        sentence-by-sentence speech, audio-driven mouth
+                                                   ├─ voice/sentences.ts      sentence cutting, emotion style tags
+                                                   └─ voice/design.ts         a voice that fits the character
                                                    ├─ model/semantics.ts      expression meanings: prompt, parsing
                                                    ├─ renderer/stills.ts      stills: face box, change box, close-ups
                                                    ├─ brain/labeler.ts        stills → vision model → learned profile
@@ -96,6 +99,12 @@ She sees the screen only when asked: *Look at My Screen* in the menu, or a chat 
 - `screen_capture` (Rust) checks Screen Recording access (`CGPreflightScreenCaptureAccess`; without it, asks macOS and tells the user what to enable), captures the display she is on with `screencapture -R`, scales it to 1800 px with `sips`, deletes the temporary file at once and returns a JPEG. Nothing is kept.
 - The message goes to the vision model with the image attached; memory stores only the text plus "[shared a screenshot]". She turns toward the middle of the screen while she looks.
 - Legibility: DeepSeek's vision model read 12 px text in a 1600×1000 test image verbatim (about 1000 prompt tokens), so the full display at 1800 px works without tiling.
+
+## Voice (M3)
+Text to speech with Xiaomi MiMo V2.5 (`tts.rs`): OpenAI-style chat completions where the assistant message is the text and an `audio` field picks the voice; the reply carries base64 WAV. Built-in voices (冰糖, Mia…), VoiceDesign (a voice from a description) and VoiceClone (a voice from a sample). The key is `MIMO_API_KEY`/`mimo_api` (env, `.env`, then Keychain) and never reaches the webview.
+- **Her own voice** (*Design Her Voice…*): the vision model looks at a still of the character (plus name and persona) and writes a voice description in MiMo's format (age and gender, texture, pace, default mood, one habit; no real actors) and a short self-introduction. VoiceDesign auditions it, up to four times; the kept sample is shrunk to 16 kHz mono and saved as `profiles/voice-<model key>.wav`, and every later line clones it, so the voice fits the model and stays the same. Without one, a built-in voice is used.
+- **Speaking** (`Speaker`): text appearing in the bubble is cut into sentences (`splitSentences`), each prefixed with a style tag for her current emotion (`(开心)`, `(cheerful)`; self-talk is whispered) and synthesized two ahead of playback, so speech starts after the first sentence. A new line or a new message from the user cuts her off. *Speak Aloud* turns it off.
+- **Mouth**: while audio plays, an AnalyserNode drives the mouth: loudness opens it and the spectral centroid picks the vowel shape (dark u/o to bright e/i); stress beats follow the openings. Without audio the text-paced `Talker` takes over.
 
 ## Emotion engine v1
 `Mood` keeps mood (−1..1, half-life 10 min toward 0.2), energy (from the local hour) and affection (pats +1, chats +0.5), persisted in localStorage. It feeds the prompt, greetings (first meeting, or back after 6 h) and idle fidgets (after 4 quiet minutes, more often when energetic).

@@ -20,6 +20,10 @@ pub struct Settings {
     pub llm_model: Option<String>,
     /// Image-capable model for learning a model's expressions; see `llm::vision_model`.
     pub llm_vision_model: Option<String>,
+    /// Speak replies aloud when a MiMo key is available (default on).
+    pub speak: Option<bool>,
+    /// Built-in MiMo voice when no voice has been designed for the model.
+    pub tts_voice: Option<String>,
 }
 
 pub struct SettingsStore {

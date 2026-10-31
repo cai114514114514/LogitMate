@@ -52,7 +52,7 @@ Existing desktop companions each fall short (survey, October 2026):
 | M1 | Transparent rendering, gaze, click-through, drag, tap reactions, tray, ModelAdapter v1 | ✅ |
 | M2 | Speech bubble, streaming DeepSeek chat, emotion tags → expressions, memory v1, emotion engine v1 | ✅ |
 | M2.5 | Agent Face (Claude Code, Codex, any hook-capable agent); zero-setup expression semantics | ✅ |
-| M3 | TTS + vowel lip sync, push-to-talk; Focus Partner; desktop presence | Focus Partner ✅ |
+| M3 | TTS + vowel lip sync, push-to-talk; Focus Partner; desktop presence | Focus Partner ✅ · TTS (MiMo) ✅ · look at screen ✅ |
 | M4 | Drag-and-drop import of any model, LLM semantic labelling, model library, Cubism 2 | |
 | M5 | Frontmost-app awareness, optional vision, window perching, MCP tools | |
 | M6 | `.petprofile` sharing | |

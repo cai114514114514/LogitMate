@@ -328,6 +328,10 @@ export class Life {
   thinking = false;
   /** How many hand poses the model has (its own motions); 0 means procedural arms only. */
   handPoses = 0;
+  /** Mouth from real speech audio this frame (TTS); overrides the text-paced mouth. */
+  voice: { open: number; vowel: string } | null = null;
+  /** Speech audio is playing or queued. */
+  voiceBusy = false;
   onEvent: (e: LifeEvent) => void = () => {};
 
   private t = 0;
@@ -344,6 +348,7 @@ export class Life {
   private smile = 0;
   private petLevel = 0;
   private petTilt = 0;
+  private voiceOpen = 0;
   private glanceUntil = 0;
   private glanceAt = { x: 0, y: 0 };
   private shift = 0;
@@ -359,7 +364,7 @@ export class Life {
   }
 
   get talking(): boolean {
-    return this.talker.talking;
+    return this.talker.talking || this.voiceBusy;
   }
 
   get asleep(): boolean {
@@ -370,14 +375,18 @@ export class Life {
     this.playing.push({ gesture: GESTURES[name], start: this.t, amount });
   }
 
-  /** Text she is saying right now (appended to what she already said). */
-  speak(text: string, quiet = false): void {
-    const starting = !this.talker.talking;
-    this.talker.feed(text, quiet);
+  /**
+   * Text she is saying right now (appended to what she already said). With `voiced`, real audio
+   * moves her mouth (see `voice`), so the text only drives gestures.
+   */
+  speak(text: string, quiet = false, voiced = false): void {
+    const starting = !this.talking;
+    if (!voiced) this.talker.feed(text, quiet);
     this.noteInteraction();
     // Now and then she talks with her hands, using one of the model's own poses.
     if (starting && !quiet && this.handPoses > 0 && this.random() < 0.35) {
-      this.onEvent({ type: "hands", ms: Math.max(2500, Math.min(8000, this.talker.remaining * 1000 + 1500)) });
+      const seconds = voiced ? text.length / 5 : this.talker.remaining;
+      this.onEvent({ type: "hands", ms: Math.max(2500, Math.min(8000, seconds * 1000 + 1500)) });
     }
   }
 
@@ -499,6 +508,17 @@ export class Life {
 
     // Talking.
     const mouth = this.talker.update(dt);
+    if (this.voice) {
+      // Real speech: loudness opens the mouth; a stress beat when it opens wide after a dip.
+      const was = this.voiceOpen;
+      this.voiceOpen = ease(this.voiceOpen, this.voice.open, dt, 0.04);
+      mouth.open = this.voiceOpen;
+      mouth.vowels = { [this.voice.vowel]: this.voiceOpen };
+      mouth.bob = -this.voiceOpen * 1.6;
+      mouth.stress = was < 0.25 && this.voiceOpen >= 0.25;
+    } else {
+      this.voiceOpen = 0;
+    }
     if (mouth.open > 0) {
       add("ParamMouthOpenY", mouth.open);
       for (const [id, v] of Object.entries(mouth.vowels)) add(id, v);

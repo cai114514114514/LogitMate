@@ -15,8 +15,13 @@ export class ChatUI {
 
   /** Called with what the user typed. */
   onSubmit: (text: string) => void = () => {};
-  /** Called with text as it appears in the bubble (only the new part), so her mouth can move. */
-  onSpeak: (text: string, quiet: boolean) => void = () => {};
+  /**
+   * Called with text as it appears in the bubble (only the new part), so she can say it; `fresh`
+   * when it starts a new line.
+   */
+  onSpeak: (text: string, quiet: boolean, fresh: boolean) => void = () => {};
+  /** Called when the current line is complete. */
+  onSpeakEnd: () => void = () => {};
   /** Called when the input wants keyboard focus (the window must become key first). */
   onWantFocus: () => Promise<void> = async () => {};
 
@@ -66,9 +71,10 @@ export class ChatUI {
    */
   say(text: string, streaming = false, onClick?: () => void, quiet = false): void {
     clearTimeout(this.hideTimer);
-    const before = this.bubble.hidden ? "" : (this.text.textContent ?? "");
-    const fresh = text.startsWith(before) && before !== "…" ? text.slice(before.length) : text;
-    if (fresh) this.onSpeak(fresh, quiet);
+    const before = this.bubble.hidden || this.bubble.classList.contains("thinking") ? "" : (this.text.textContent ?? "");
+    const continues = before !== "" && text.startsWith(before);
+    const added = continues ? text.slice(before.length) : text;
+    if (added) this.onSpeak(added, quiet, !continues);
     if (onClick !== undefined || !streaming) this.bubbleAction = onClick ?? null;
     this.bubble.classList.toggle("actionable", !!this.bubbleAction);
     this.bubble.classList.toggle("thinking", text === "");
@@ -87,6 +93,7 @@ export class ChatUI {
 
   /** Starts the countdown to hide the bubble, longer for longer text. */
   done(): void {
+    this.onSpeakEnd();
     clearTimeout(this.hideTimer);
     const ms = Math.max(MIN_SHOW_MS, (this.text.textContent?.length ?? 0) * READ_MS_PER_CHAR);
     this.hideTimer = window.setTimeout(() => {

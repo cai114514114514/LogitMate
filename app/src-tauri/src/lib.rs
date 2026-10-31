@@ -10,6 +10,7 @@ mod screen;
 mod secrets;
 mod settings;
 mod tray;
+mod tts;
 
 use llm::{ChatMessage, ChatState};
 use memory::{Memory, StoredMessage};
@@ -122,6 +123,76 @@ fn profile_remove(app: AppHandle, key: String) -> Result<(), String> {
     profiles::remove(&profiles_dir(&app)?, &key)
 }
 
+fn voice_file(app: &AppHandle, key: &str) -> Result<std::path::PathBuf, String> {
+    if !(8..=64).contains(&key.len()) || !key.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("bad voice key".into());
+    }
+    Ok(profiles_dir(app)?.join(format!("voice-{key}.wav")))
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TtsStatus {
+    available: bool,
+    /// A designed voice is saved for this model.
+    has_voice: bool,
+}
+
+#[tauri::command]
+fn tts_status(app: AppHandle, key: String) -> Result<TtsStatus, String> {
+    Ok(TtsStatus { available: secrets::key(&secrets::MIMO).is_some(), has_voice: voice_file(&app, &key)?.is_file() })
+}
+
+/// Speaks `text` (base64 WAV) in the model's saved voice, else the chosen or default built-in one.
+/// `direction` is natural-language style, e.g. "(开心)".
+#[tauri::command]
+async fn tts_speak(
+    app: AppHandle,
+    store: State<'_, SettingsStore>,
+    key: String,
+    text: String,
+    direction: String,
+    zh: bool,
+) -> Result<String, String> {
+    use base64::Engine;
+    let api_key = secrets::key(&secrets::MIMO).ok_or("NO_TTS_KEY")?;
+    let voice = match std::fs::read(voice_file(&app, &key)?) {
+        Ok(sample) => tts::Voice::Clone(sample),
+        Err(_) => tts::Voice::Preset(
+            store.get().tts_voice.unwrap_or_else(|| (if zh { tts::DEFAULT_VOICE_ZH } else { tts::DEFAULT_VOICE_EN }).into()),
+        ),
+    };
+    let wav = tts::synthesize(&api_key, &text, &direction, &voice).await?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(wav))
+}
+
+/// A sample of a voice designed from `description` (base64 WAV).
+#[tauri::command]
+async fn tts_design(description: String, text: String) -> Result<String, String> {
+    use base64::Engine;
+    let api_key = secrets::key(&secrets::MIMO).ok_or("NO_TTS_KEY")?;
+    let wav = tts::synthesize(&api_key, &text, "", &tts::Voice::Design(description)).await?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(wav))
+}
+
+/// Keeps a designed sample as the model's voice; later lines clone it.
+#[tauri::command]
+fn tts_save_voice(app: AppHandle, key: String, wav: String) -> Result<(), String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(wav.trim()).map_err(|e| e.to_string())?;
+    let path = voice_file(&app, &key)?;
+    std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
+    std::fs::write(path, tts::compact_sample(&bytes)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn tts_remove_voice(app: AppHandle, key: String) -> Result<(), String> {
+    match std::fs::remove_file(voice_file(&app, &key)?) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+        _ => Ok(()),
+    }
+}
+
 /// "Look at my screen": a JPEG (base64) of the given screen rectangle in points, long side ≤ 1800 px.
 /// Without Screen Recording access it asks macOS for it and fails with NO_SCREEN_ACCESS.
 #[tauri::command]
@@ -164,7 +235,7 @@ fn has_api_key() -> bool {
 /// Saves a DeepSeek key to the macOS Keychain.
 #[tauri::command]
 fn set_api_key(key: String) -> Result<(), String> {
-    secrets::store_deepseek_key(&key)
+    secrets::store_key(&secrets::DEEPSEEK, &key)
 }
 
 #[tauri::command]
@@ -273,6 +344,11 @@ pub fn run() {
             profile_remove,
             debug_save_image,
             screen_capture,
+            tts_status,
+            tts_speak,
+            tts_design,
+            tts_save_voice,
+            tts_remove_voice,
             has_api_key,
             set_api_key,
             memory_append,

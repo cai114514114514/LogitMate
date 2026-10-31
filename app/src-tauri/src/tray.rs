@@ -3,11 +3,14 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Menu ids the webview handles itself (sizing, model choice, about).
-const FORWARDED: &[&str] = &["chat", "look", "focus", "agents", "size-s", "size-m", "size-l", "pick-model", "relearn", "forget", "about"];
+const FORWARDED: &[&str] = &["chat", "look", "focus", "voice", "agents", "size-s", "size-m", "size-l", "pick-model", "relearn", "forget", "about"];
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let chat = MenuItem::with_id(app, "chat", "Talk to Her…", true, None::<&str>)?;
     let look = MenuItem::with_id(app, "look", "Look at My Screen", true, None::<&str>)?;
+    let speak_on = app.state::<crate::settings::SettingsStore>().get().speak.unwrap_or(true);
+    let speak = CheckMenuItem::with_id(app, "speak", "Speak Aloud", true, speak_on, None::<&str>)?;
+    let voice = MenuItem::with_id(app, "voice", "Design Her Voice…", true, None::<&str>)?;
     let focus = MenuItem::with_id(app, "focus", "Focus With Me…", true, None::<&str>)?;
     let forget = MenuItem::with_id(app, "forget", "Forget Everything…", true, None::<&str>)?;
     let agents = MenuItem::with_id(app, "agents", "Coding Agents…", true, None::<&str>)?;
@@ -35,6 +38,9 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             &focus,
             &agents,
             &PredefinedMenuItem::separator(app)?,
+            &speak,
+            &voice,
+            &PredefinedMenuItem::separator(app)?,
             &toggle,
             &on_top,
             &size,
@@ -57,6 +63,10 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
                 "quit" => app.exit(0),
                 "toggle" => {
                     let _ = if win.is_visible().unwrap_or(false) { win.hide() } else { win.show() };
+                }
+                "speak" => {
+                    let on = speak.is_checked().unwrap_or(true);
+                    let _ = win.emit("pet://menu", if on { "speak-on" } else { "speak-off" });
                 }
                 "on-top" => {
                     let _ = win.set_always_on_top(on_top.is_checked().unwrap_or(true));
