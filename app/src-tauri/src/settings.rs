@@ -18,6 +18,8 @@ pub struct Settings {
     /// OpenAI-compatible endpoint; defaults to DeepSeek.
     pub llm_base_url: Option<String>,
     pub llm_model: Option<String>,
+    /// Image-capable model for learning a model's expressions; see `llm::vision_model`.
+    pub llm_vision_model: Option<String>,
 }
 
 pub struct SettingsStore {

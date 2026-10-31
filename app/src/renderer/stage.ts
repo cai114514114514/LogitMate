@@ -4,6 +4,7 @@ import { CubismFramework, LogLevel, Option } from "@framework/live2dcubismframew
 import { CubismMatrix44 } from "@framework/math/cubismmatrix44";
 import { CubismWebGLOffscreenManager } from "@framework/rendering/cubismoffscreenmanager";
 import type { PetModel } from "./petModel";
+import type { Still } from "./stills";
 
 let cubismStarted = false;
 
@@ -39,6 +40,7 @@ export class Stage {
   private raf = 0;
   private pixel = new Uint8Array(4);
   private stats = { frames: 0, since: 0 };
+  private stills: { pose: () => void; done: (s: Still) => void }[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -84,28 +86,65 @@ export class Stage {
     this.stats = { frames: 0, since: now };
   }
 
+  /**
+   * Renders a still: `pose` sets the model up (see PetModel.poseStill), the frame is drawn and read
+   * back, and the live frame drawn right after replaces it before anything reaches the screen.
+   * One still per frame, so the pet keeps moving smoothly.
+   */
+  still(pose: () => void): Promise<Still> {
+    return new Promise((done) => this.stills.push({ pose, done }));
+  }
+
   private frame(dt: number): void {
-    const { gl, canvas, model } = this;
+    const { gl, model } = this;
     if (gl.isContextLost()) return;
     this.resize();
+    if (!model) return this.clear();
 
+    const job = this.stills.shift();
+    if (job) {
+      this.clear();
+      job.pose();
+      this.render(model);
+      job.done(this.readFrame());
+    }
+
+    this.clear();
+    this.hooks.beforeUpdate?.(dt);
+    model.update(dt);
+    this.render(model);
+    this.hooks.afterDraw?.();
+  }
+
+  private clear(): void {
+    const { gl, canvas } = this;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    if (!model) return;
+  }
 
-    this.hooks.beforeUpdate?.(dt);
-    model.update(dt);
-
+  private render(model: PetModel): void {
+    const { gl, canvas } = this;
     const offscreen = CubismWebGLOffscreenManager.getInstance();
     offscreen.beginFrameProcess(gl);
     model.draw(this.projection(model), [0, 0, canvas.width, canvas.height]);
     offscreen.endFrameProcess(gl);
     offscreen.releaseStaleRenderTextures(gl);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
 
-    this.hooks.afterDraw?.();
+  /** The whole canvas, top row first. */
+  private readFrame(): Still {
+    const { gl, canvas } = this;
+    const w = canvas.width;
+    const h = canvas.height;
+    const flipped = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, flipped);
+    const pixels = new Uint8Array(w * h * 4);
+    const row = w * 4;
+    for (let y = 0; y < h; y++) pixels.set(flipped.subarray((h - 1 - y) * row, (h - y) * row), y * row);
+    return { width: w, height: h, pixels };
   }
 
   /** Fits the whole model canvas inside the window, keeping its aspect ratio. */

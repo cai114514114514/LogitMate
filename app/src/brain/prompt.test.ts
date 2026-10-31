@@ -27,4 +27,10 @@ describe("systemPrompt", () => {
     expect(p).toContain("- 喜欢猫");
     expect(p).toMatch(/Your persona:\nTsundere\.$/);
   });
+
+  it("tells her what her emotions look like on this model", () => {
+    const p = systemPrompt({ ...base, looks: { shy: "pink cheeks", love: "heart eyes" } });
+    expect(p).toContain("On your face: shy = pink cheeks.");
+    expect(p).not.toContain("heart eyes");
+  });
 });

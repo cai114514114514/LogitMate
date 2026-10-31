@@ -9,9 +9,13 @@ Tauri 2 (Rust, app/src-tauri)                     WebView (TypeScript, app/src)
 ├─ settings.rs    settings.json                    ├─ renderer/stage.ts     WebGL2 canvas, frame loop, pixel hit test
 ├─ llm.rs         streaming OpenAI-compatible chat ├─ renderer/textures.ts  downscaled texture loading
 ├─ memory.rs      SQLite: messages + user facts    ├─ behavior/interaction.ts gaze, click-through, drag, tap
-└─ secrets.rs     API key: env → .env → Keychain   ├─ behavior/reactions.ts   expressions/gestures by label
-                                                   ├─ behavior/mood.ts        emotion engine v1
-                                                   ├─ behavior/companion.ts   chat turn ↔ body, greeting, fidgets
+├─ secrets.rs     API key: env → .env → Keychain   ├─ behavior/reactions.ts   expressions/gestures by label
+├─ profiles.rs    learned model profiles (cache)   ├─ behavior/mood.ts        emotion engine v1
+├─ agents.rs      Agent Face bridge (127.0.0.1)    ├─ behavior/companion.ts   chat turn ↔ body, greeting, fidgets
+└─ agent_hooks.rs connect Claude Code / Codex      ├─ behavior/agentFace.ts   reactions to coding agents
+                                                   ├─ model/semantics.ts      expression meanings: prompt, parsing
+                                                   ├─ renderer/stills.ts      stills: face box, change box, close-ups
+                                                   ├─ brain/labeler.ts        stills → vision model → learned profile
                                                    ├─ brain/tags.ts           streaming [emo:]/[act:]/[remember:] parser
                                                    ├─ brain/expressions.ts    emotion/action vocabulary → this model
                                                    ├─ brain/prompt.ts         system prompt
@@ -51,6 +55,16 @@ Tauri 2 (Rust, app/src-tauri)                     WebView (TypeScript, app/src)
 - **Reactions** (`AgentFace`): working → the thinking face until 4 s of quiet; waiting for you → an aside in her voice whose bubble opens the agent's terminal (known terminals only, by bundle id); turns over 45 s → an upbeat "done" line; 3 failures in a row → encouragement (once per 10 min). Asides are not stored in the conversation and wait while you are talking to her.
 - **Other agents** (e.g. Logit-Harness): pipe Claude-Code-shaped hook JSON (`hook_event_name`, `session_id`, `cwd`, `tool_name`, `message`) into `logitmate-hook <agent-name>`.
 
+## Zero-setup expressions (M2.5)
+Expression names range from 爱心眼 to `exp_03`, so names alone can't say what a model can show. On the first launch with a new model, LogitMate looks at every expression instead:
+1. **Stills** (`Stage.still`, `PetModel.poseStill`): between two live frames the model is posed with all parameters at default plus one expression at full weight (no motion, physics, breath or gaze), drawn, and read back. The live frame drawn right after replaces it before anything reaches the screen; one still per frame.
+2. **Crops** (`renderer/stills.ts`): a probe with eyes shut and mouth open locates the face on any standard rig; the pixel difference to the rest pose shows what an expression changed. Each image is rest | expression with the same crop, widened to whatever changed (shoes, skirt), plus a close-up when the change is small (tears, blush, sweat). Expressions that change nothing visible at rest are labelled from text only.
+3. **Labelling** (`brain/labeler.ts`): batches of 6 go to the vision model (`deepseek-flash` on DeepSeek; the `llmVisionModel` setting overrides it) with each expression's name, file and moved parameters by display name. The reply gives kind (emotion, accessory, outfit, body, none), an emotion from the fixed vocabulary, intensity, valence, arousal and a few words on the look. Missing answers are retried; if the endpoint refuses images, names decide.
+4. **Use**: `buildExpressionMap` prefers learned meanings over keyword guesses (props are never used as feelings), pats use pleasant expressions, and the system prompt tells her what each emotion looks like on this model ("love = heart-shaped pupils").
+5. **Cache**: `profiles/<hash>.json` in the app data folder, keyed by model path, expressions and labelling version. *Relearn Expressions* redoes it. Only rendered stills of the character are sent, never model files, and only to the provider already used for chat.
+
+Research behind it: Xpress (arXiv 2503.00283), an LLM choosing from a pre-rendered expression bank with descriptions and intensity; the GPT-4V emotion benchmark (arXiv 2312.04293), where large image batches drop items and subtle expressions are missed; Live Emoji (arXiv 1902.03529), valence and arousal attached to each expression.
+
 ## Emotion engine v1
 `Mood` keeps mood (−1..1, half-life 10 min toward 0.2), energy (from the local hour) and affection (pats +1, chats +0.5), persisted in localStorage. It feeds the prompt, greetings (first meeting, or back after 6 h) and idle fidgets (after 4 quiet minutes, more often when energetic).
 
@@ -66,8 +80,8 @@ Tauri 2 (Rust, app/src-tauri)                     WebView (TypeScript, app/src)
 cd app
 pnpm install
 pnpm sync:cubism              # after placing the SDK in app/vendor/cubism
-pnpm test                     # adapter, tags, expressions, prompt, mood, gestures
-(cd src-tauri && cargo test)  # settings, folder listing, cursor math, SSE, .env, memory
+pnpm test                     # adapter, tags, expressions, prompt, mood, gestures, semantics, stills
+(cd src-tauri && cargo test)  # settings, folder listing, cursor math, SSE, .env, memory, profiles
 LOGITMATE_MODEL=/path/to/x.model3.json pnpm tauri dev
 echo "hello" > /tmp/logitmate-say.txt   # dev builds: send a chat message from a script
 ```

@@ -4,6 +4,7 @@ mod cursor;
 mod llm;
 mod memory;
 mod model_files;
+mod profiles;
 mod secrets;
 mod settings;
 mod tray;
@@ -62,6 +63,84 @@ async fn chat_stream(
         return Err("NO_API_KEY".into());
     }
     llm::stream_chat(&app, &chat, id, &base, &model, key, messages).await
+}
+
+/// One whole reply, for background jobs such as learning what a model's expressions mean.
+/// `vision` selects the image-capable model (see `llm::vision_model`).
+#[tauri::command]
+async fn llm_complete(
+    store: State<'_, SettingsStore>,
+    messages: Vec<serde_json::Value>,
+    json: bool,
+    vision: bool,
+) -> Result<String, String> {
+    let s = store.get();
+    let base = s.llm_base_url.unwrap_or_else(|| llm::DEFAULT_BASE_URL.into());
+    let model = if vision {
+        llm::vision_model(&base, s.llm_vision_model, s.llm_model)
+    } else {
+        s.llm_model.unwrap_or_else(|| llm::DEFAULT_MODEL.into())
+    };
+    let key = secrets::deepseek_key();
+    if key.is_none() && base.contains("deepseek.com") {
+        return Err("NO_API_KEY".into());
+    }
+    llm::complete(&base, &model, key, messages, json).await
+}
+
+/// Name of the model `llm_complete` uses for images, shown in About.
+#[tauri::command]
+fn llm_vision_model(store: State<SettingsStore>) -> String {
+    let s = store.get();
+    let base = s.llm_base_url.unwrap_or_else(|| llm::DEFAULT_BASE_URL.into());
+    llm::vision_model(&base, s.llm_vision_model, s.llm_model)
+}
+
+fn profiles_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("profiles"))
+}
+
+#[tauri::command]
+fn profile_load(app: AppHandle, key: String) -> Result<Option<String>, String> {
+    profiles::load(&profiles_dir(&app)?, &key)
+}
+
+#[tauri::command]
+fn profile_save(app: AppHandle, key: String, json: String) -> Result<(), String> {
+    profiles::save(&profiles_dir(&app)?, &key, &json)
+}
+
+#[tauri::command]
+fn profile_remove(app: AppHandle, key: String) -> Result<(), String> {
+    profiles::remove(&profiles_dir(&app)?, &key)
+}
+
+/// Development only: writes a base64 JPEG to /tmp/logitmate-<name>.jpg so stills can be inspected.
+#[tauri::command]
+fn debug_save_image(name: String, base64: String) -> Result<(), String> {
+    if !cfg!(debug_assertions) {
+        return Ok(());
+    }
+    if !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        return Err("bad name".into());
+    }
+    let bytes = decode_base64(&base64).ok_or("bad base64")?;
+    std::fs::write(format!("/tmp/logitmate-{name}.jpg"), bytes).map_err(|e| e.to_string())
+}
+
+fn decode_base64(s: &str) -> Option<Vec<u8>> {
+    const ABC: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = Vec::with_capacity(s.len() * 3 / 4);
+    let (mut acc, mut bits) = (0u32, 0);
+    for b in s.bytes().filter(|b| !b.is_ascii_whitespace() && *b != b'=') {
+        acc = (acc << 6) | ABC.iter().position(|&c| c == b)? as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Some(out)
 }
 
 #[tauri::command]
@@ -173,6 +252,12 @@ pub fn run() {
             set_ignore_cursor,
             chat_stream,
             chat_cancel,
+            llm_complete,
+            llm_vision_model,
+            profile_load,
+            profile_save,
+            profile_remove,
+            debug_save_image,
             has_api_key,
             set_api_key,
             memory_append,
@@ -207,4 +292,14 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn decodes_base64() {
+        assert_eq!(super::decode_base64("aGVsbG8=").unwrap(), b"hello");
+        assert_eq!(super::decode_base64("/9j/").unwrap(), [0xff, 0xd8, 0xff]);
+        assert!(super::decode_base64("no*pe").is_none());
+    }
 }

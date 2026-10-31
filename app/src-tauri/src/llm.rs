@@ -5,10 +5,23 @@
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 pub const DEFAULT_BASE_URL: &str = "https://api.deepseek.com";
 pub const DEFAULT_MODEL: &str = "deepseek-flash";
+/// DeepSeek's model that accepts images (deepseek-v4-pro silently drops them).
+pub const DEEPSEEK_VISION_MODEL: &str = "deepseek-flash";
+
+/// The model used when a request carries images: an explicit setting, else DeepSeek's vision
+/// model on DeepSeek, else the chat model (local servers usually serve one model for both).
+pub fn vision_model(base_url: &str, vision: Option<String>, chat: Option<String>) -> String {
+    vision
+        .filter(|m| !m.trim().is_empty())
+        .or_else(|| base_url.contains("deepseek.com").then(|| DEEPSEEK_VISION_MODEL.to_string()))
+        .or(chat)
+        .unwrap_or_else(|| DEFAULT_MODEL.to_string())
+}
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct ChatMessage {
@@ -97,9 +110,64 @@ pub async fn stream_chat(
     Ok(())
 }
 
+/// One whole (non-streaming) reply, for background jobs. Messages pass through as JSON, so they
+/// may carry image parts. With `json`, asks for a JSON object. Returns the reply without reasoning.
+pub async fn complete(
+    base_url: &str,
+    model: &str,
+    api_key: Option<String>,
+    messages: Vec<serde_json::Value>,
+    json: bool,
+) -> Result<String, String> {
+    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+    let mut body = serde_json::json!({ "model": model, "messages": messages });
+    if json {
+        body["response_format"] = serde_json::json!({ "type": "json_object" });
+    }
+    let mut req = reqwest::Client::new().post(&url).timeout(Duration::from_secs(240)).json(&body);
+    if let Some(key) = api_key {
+        req = req.bearer_auth(key);
+    }
+    let res = req.send().await.map_err(|e| format!("network: {e}"))?;
+    let status = res.status();
+    let text = res.text().await.map_err(|e| format!("network: {e}"))?;
+    if !status.is_success() {
+        return Err(format!("{status}: {}", text.chars().take(300).collect::<String>()));
+    }
+    reply_text(&text)
+}
+
+/// The assistant text of a chat-completions response body.
+pub fn reply_text(body: &str) -> Result<String, String> {
+    let v: serde_json::Value = serde_json::from_str(body).map_err(|e| format!("api: bad response: {e}"))?;
+    v["choices"][0]["message"]["content"]
+        .as_str()
+        .filter(|t| !t.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "api: empty reply".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn picks_a_vision_model() {
+        let ds = DEFAULT_BASE_URL;
+        assert_eq!(vision_model(ds, None, Some("deepseek-v4-pro".into())), "deepseek-flash");
+        assert_eq!(vision_model(ds, Some("my-vl".into()), None), "my-vl");
+        assert_eq!(vision_model(ds, Some(" ".into()), None), "deepseek-flash");
+        assert_eq!(vision_model("http://localhost:1234/v1", None, Some("qwen3-vl".into())), "qwen3-vl");
+        assert_eq!(vision_model("http://localhost:1234/v1", None, None), DEFAULT_MODEL);
+    }
+
+    #[test]
+    fn reads_reply_text() {
+        let ok = r#"{"choices":[{"message":{"content":"{\"a\":1}","reasoning_content":"..."}}]}"#;
+        assert_eq!(reply_text(ok).unwrap(), r#"{"a":1}"#);
+        assert!(reply_text(r#"{"choices":[{"message":{"content":""}}]}"#).is_err());
+        assert!(reply_text("oops").is_err());
+    }
 
     #[test]
     fn parses_stream_lines() {

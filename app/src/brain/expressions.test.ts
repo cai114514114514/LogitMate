@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelProfile } from "../model/types";
+import type { ExpressionMeaning, LearnedProfile } from "../model/semantics";
 import { buildExpressionMap } from "./expressions";
 
 const profile = (expressions: string[], motions: string[]): ModelProfile => ({
@@ -42,5 +43,37 @@ describe("buildExpressionMap", () => {
     const m = buildExpressionMap(profile(["Smile", "Blush", "Tears"], []));
     expect(Object.fromEntries(m.emotions)).toEqual({ happy: "Smile", shy: "Blush", sad: "Tears", smug: "Smile", love: "Smile" });
     expect(m.actions.size).toBe(0);
+  });
+
+  it("prefers learned meanings over labels", () => {
+    const meaning = (name: string, m: Partial<ExpressionMeaning>): ExpressionMeaning => ({
+      name, kind: "emotion", emotion: null, intensity: "low", valence: 0, arousal: 0.5, look: "", from: "vision", ...m,
+    });
+    const learned: LearnedProfile = {
+      version: 1,
+      labeller: "deepseek-flash",
+      learnedAt: "2026-10-31T00:00:00Z",
+      expressions: [
+        meaning("F01", { emotion: "love", valence: 0.9, look: "heart-shaped pupils" }),
+        meaning("F02", { emotion: "happy", intensity: "low", valence: 0.6, look: "soft smile" }),
+        meaning("F03", { emotion: "happy", intensity: "high", valence: 0.9, look: "eyes squeezed shut, laughing" }),
+        meaning("加载", { emotion: "thinking", valence: 0.1, look: "loading spinner" }),
+        // A label that sounds like a feeling, but the labeller saw a prop.
+        meaning("Smile Mask", { kind: "accessory" }),
+      ],
+    };
+    const m = buildExpressionMap(profile(["F01", "F02", "F03", "加载", "Smile Mask", "Tears"], []), learned);
+    expect(Object.fromEntries(m.emotions)).toEqual({
+      happy: "F03",
+      love: "F01",
+      thinking: "加载",
+      // Not labelled: keyword match still works.
+      sad: "Tears",
+      smug: "F03",
+      shy: "F01",
+    });
+    expect(m.looks.get("love")).toBe("heart-shaped pupils");
+    expect(m.looks.get("smug")).toBe("eyes squeezed shut, laughing");
+    expect(m.pats).toEqual(["F01", "F02", "F03"]);
   });
 });

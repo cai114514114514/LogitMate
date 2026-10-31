@@ -9,9 +9,11 @@ import { Interaction, type WindowBox } from "./behavior/interaction";
 import { Mood } from "./behavior/mood";
 import { Reactions } from "./behavior/reactions";
 import { ChatSession } from "./brain/chat";
-import { buildExpressionMap } from "./brain/expressions";
+import { buildExpressionMap, type ExpressionMap } from "./brain/expressions";
+import { learnExpressions, loadLearned } from "./brain/labeler";
 import { systemPrompt } from "./brain/prompt";
 import { readModelSource } from "./model/loader";
+import { profileKey, type LearnedProfile } from "./model/semantics";
 import { PetModel } from "./renderer/petModel";
 import { Stage, startCubism } from "./renderer/stage";
 import { ChatUI } from "./ui/chatUi";
@@ -140,9 +142,19 @@ async function main(): Promise<void> {
   await win.setPosition(new LogicalPosition(box.x, box.y));
 
   const profile = model.normalized.profile;
+  // Label guesses now; what each expression really means once learned (cached per model).
   const map = buildExpressionMap(profile);
   const mood = new Mood();
   const reactions = new Reactions(model);
+  const learnedKey = profileKey(modelPath, profile.expressions);
+  let learned: LearnedProfile | null = null;
+  const useLearned = (l: LearnedProfile) => {
+    learned = l;
+    Object.assign(map, buildExpressionMap(profile, l));
+    reactions.setPatPool(map.pats);
+  };
+  const cached = await loadLearned(learnedKey);
+  if (cached) useLearned(cached);
   const ui = new ChatUI();
   const chat = new ChatSession(async () =>
     systemPrompt({
@@ -151,6 +163,7 @@ async function main(): Promise<void> {
       facts: await invoke<string[]>("memory_facts", { limit: 40 }),
       moodLine: mood.describe(),
       emotions: [...map.emotions.keys()],
+      looks: Object.fromEntries(map.looks),
       actions: [...map.actions.keys()],
       now: new Date(),
       locale: navigator.language,
@@ -176,6 +189,24 @@ async function main(): Promise<void> {
   }, navigator.language.toLowerCase().startsWith("zh"));
   await listen<AgentEvent>("agent://event", ({ payload }) => agentFace.handle(payload));
   setInterval(() => agentFace.tick(), 1000);
+
+  let learning = false;
+  const learn = async () => {
+    if (learning) return;
+    learning = true;
+    try {
+      const l = await learnExpressions({ stage, model, key: learnedKey, onProgress: (text) => toast(text, 0) });
+      useLearned(l);
+      const shown = [...map.emotions.keys()].length;
+      toast(`Learned ${l.expressions.length} expressions; she can show ${shown} feelings.`);
+      console.info(`[pet] learned by ${l.labeller}: ${l.expressions.map((m) => `${m.name}=${m.emotion ?? m.kind}`).join(", ")}`);
+    } catch (e) {
+      toast(String(e).includes("NO_API_KEY") ? "Add a DeepSeek API key so she can learn her expressions." : `Couldn't learn expressions: ${String(e).slice(0, 100)}`);
+      console.warn("[pet] learning expressions failed", e);
+    } finally {
+      learning = false;
+    }
+  };
 
   ui.onWantFocus = () => win.setFocus();
   ui.onSubmit = (text) => void companion.talk(text);
@@ -226,6 +257,9 @@ async function main(): Promise<void> {
         save({ modelPath: path });
         location.reload();
       }
+    } else if (id === "relearn") {
+      await invoke("profile_remove", { key: learnedKey }).catch(() => {});
+      await learn();
     } else if (id === "forget") {
       const sure = await ask("Forget all conversations and everything she has learned about you?", {
         title: "Forget Everything",
@@ -239,7 +273,7 @@ async function main(): Promise<void> {
         toast("Memory cleared.");
       }
     } else if (id === "about") {
-      await message(aboutText(source.dir, model, map), { title: "About This Model", kind: "info" });
+      await message(aboutText(source.dir, model, map, learned), { title: "About This Model", kind: "info" });
     }
   });
 
@@ -264,6 +298,8 @@ async function main(): Promise<void> {
   if ((firstRun || away > GREET_AFTER_HOURS) && (await invoke<boolean>("has_api_key"))) {
     setTimeout(() => void companion.greet(away, firstRun), 1200);
   }
+  // A new model: learn what its expressions mean in the background, after any greeting.
+  if (!cached && (await invoke<boolean>("has_api_key"))) setTimeout(() => void learn(), 6000);
 }
 
 async function manageAgents(): Promise<void> {
@@ -304,7 +340,7 @@ async function manageAgents(): Promise<void> {
   }
 }
 
-function aboutText(dir: string, model: PetModel, map: ReturnType<typeof buildExpressionMap>): string {
+function aboutText(dir: string, model: PetModel, map: ExpressionMap, learned: LearnedProfile | null): string {
   const p = model.normalized.profile;
   const c = p.capabilities;
   const yes = (b: boolean) => (b ? "✓" : "—");
@@ -313,10 +349,13 @@ function aboutText(dir: string, model: PetModel, map: ReturnType<typeof buildExp
     `Folder: ${dir}`,
     `${p.expressions.length} expressions · ${p.motions.length} motions`,
     `Blink ${yes(c.eyeBlink)}  Physics ${yes(c.physics)}  Gaze ${yes(c.look)}  Vowel lip sync ${yes(c.vowels)}  ARKit ${yes(c.arkit)}`,
-    `Emotions she can show: ${[...map.emotions.keys()].join(", ") || "none"}`,
+    `Emotions she can show: ${[...map.emotions].map(([e, name]) => `${e} (${map.looks.get(e) ?? name})`).join(", ") || "none"}`,
+    learned
+      ? `Expressions learned by ${learned.labeller} on ${new Date(learned.learnedAt).toLocaleDateString()} (Relearn Expressions to redo).`
+      : "Expressions guessed from their names; she learns them properly when an API key is set.",
     `Texture memory: about ${(model.textureMemoryBytes / 2 ** 20).toFixed(0)} MB`,
     "",
-    "The model belongs to its creators. LogitMate only reads it from your disk and never copies or uploads it; read the terms that came with the model and credit its creators when you share it.",
+    "The model belongs to its creators. LogitMate only reads it from your disk and never copies or uploads its files; to learn its expressions, small rendered stills are sent once to your LLM provider. Read the terms that came with the model and credit its creators when you share it.",
   ].join("\n");
 }
 

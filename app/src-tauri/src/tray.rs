@@ -3,7 +3,7 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Menu ids the webview handles itself (sizing, model choice, about).
-const FORWARDED: &[&str] = &["chat", "agents", "size-s", "size-m", "size-l", "pick-model", "forget", "about"];
+const FORWARDED: &[&str] = &["chat", "agents", "size-s", "size-m", "size-l", "pick-model", "relearn", "forget", "about"];
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let chat = MenuItem::with_id(app, "chat", "Talk to Her…", true, None::<&str>)?;
@@ -23,6 +23,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     )?;
     let pick = MenuItem::with_id(app, "pick-model", "Choose Model…", true, None::<&str>)?;
     let about = MenuItem::with_id(app, "about", "About This Model", true, None::<&str>)?;
+    let relearn = MenuItem::with_id(app, "relearn", "Relearn Expressions", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit LogitMate", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
@@ -35,6 +36,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             &size,
             &pick,
             &about,
+            &relearn,
             &forget,
             &PredefinedMenuItem::separator(app)?,
             &quit,

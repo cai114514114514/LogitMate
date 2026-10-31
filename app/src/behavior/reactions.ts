@@ -30,6 +30,12 @@ export class Reactions {
     this.gestures = pairGestures(motions.filter((m) => m.group !== model.normalized.profile.idleGroup));
   }
 
+  /** Expressions to show when patted, e.g. from a learned profile; empty keeps the label guess. */
+  setPatPool(names: string[]): void {
+    const pool = this.model.normalized.profile.expressions.filter((e) => names.includes(e.name));
+    if (pool.length) this.headPool = pool;
+  }
+
   /** `fy` is the tap height as a fraction of the window (0 = top). */
   tap(fy: number): void {
     if (fy < 0.32) this.pat();

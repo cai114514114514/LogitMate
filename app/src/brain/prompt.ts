@@ -6,6 +6,8 @@ export interface PromptInput {
   facts: string[];
   moodLine: string;
   emotions: string[];
+  /** What some emotions look like on this model ("love" -> "heart-shaped pupils"). */
+  looks?: Record<string, string>;
   actions: string[];
   now: Date;
   /** System locale, used before the user has written anything. */
@@ -25,6 +27,8 @@ export function systemPrompt(p: PromptInput): string {
     `- Begin every reply with exactly one emotion tag [emo:X], X one of: ${p.emotions.join(", ") || "happy"}.`,
     "  You may add another emotion tag later in the reply when your feeling changes.",
   ];
+  const looks = Object.entries(p.looks ?? {}).filter(([e]) => p.emotions.includes(e));
+  if (looks.length) lines.push(`  On your face: ${looks.map(([e, look]) => `${e} = ${look}`).join("; ")}.`);
   if (p.actions.length) lines.push(`- At most one gesture per reply, only when it fits: [act:Y], Y one of: ${p.actions.join(", ")}.`);
   lines.push(
     "- When the user shares a lasting fact about themselves (name, likes, job, plans, important dates),",

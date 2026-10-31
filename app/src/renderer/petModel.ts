@@ -21,6 +21,7 @@ import { InvalidMotionQueueEntryHandleValue } from "@framework/motion/cubismmoti
 import { CubismPhysicsUpdater } from "@framework/motion/cubismphysicsupdater";
 import { CubismPoseUpdater } from "@framework/motion/cubismposeupdater";
 import { CubismUpdateScheduler } from "@framework/motion/cubismupdatescheduler";
+import type { Exp3Parameter } from "../model/semantics";
 import type { NormalizedModel } from "../model/types";
 import { Priority } from "./priority";
 import { loadTexture } from "./textures";
@@ -62,6 +63,7 @@ export class PetModel extends CubismUserModel {
   private lipSyncIds: CubismIdHandle[] = [];
   private motions = new Map<string, CubismMotion>();
   private expressions = new Map<string, ACubismMotion>();
+  private expressionParams = new Map<string, Exp3Parameter[]>();
   private idAngleZ: CubismIdHandle;
   private idBodyAngleX: CubismIdHandle;
   private idBodyAngleZ: CubismIdHandle;
@@ -102,9 +104,16 @@ export class PetModel extends CubismUserModel {
       file: s.getExpressionFileName(i),
     }));
     const expBuffers = await Promise.all(expressionFiles.map((e) => fetchBuffer(opts.url(e.file))));
+    const decoder = new TextDecoder();
     expressionFiles.forEach((e, i) => {
       const motion = this.loadExpression(expBuffers[i], expBuffers[i].byteLength, e.name);
       if (motion) this.expressions.set(e.name, motion);
+      try {
+        const json = JSON.parse(decoder.decode(expBuffers[i])) as { Parameters?: Exp3Parameter[] };
+        this.expressionParams.set(e.name, json.Parameters ?? []);
+      } catch {
+        this.expressionParams.set(e.name, []);
+      }
     });
     const neutral = jsonBuffer({ Type: "Live2D Expression", Parameters: [] });
     this.expressions.set(NEUTRAL_EXPRESSION, this.loadExpression(neutral, neutral.byteLength, NEUTRAL_EXPRESSION));
@@ -261,6 +270,33 @@ export class PetModel extends CubismUserModel {
 
   clearExpression(): void {
     this.setExpression(NEUTRAL_EXPRESSION);
+  }
+
+  /** The parameters an expression sets, as written in its exp3 file. */
+  expressionParameters(name: string): Exp3Parameter[] {
+    return this.expressionParams.get(name) ?? [];
+  }
+
+  /**
+   * Poses the model for a still: every parameter at its default, then one expression at full
+   * weight and any `extra` values. No motion, physics, breath or gaze. The next `update()` restores
+   * the live pose, because it starts from the parameters saved by the previous frame.
+   */
+  poseStill(expression: string | null, extra: Record<string, number> = {}): void {
+    const m = this._model;
+    const ids = CubismFramework.getIdManager();
+    for (let i = 0; i < m.getParameterCount(); i++) m.setParameterValueByIndex(i, m.getParameterDefaultValue(i));
+    const set = (id: string, value: (current: number) => number) => {
+      const i = m.getParameterIndex(ids.getId(id));
+      if (i < 0 || i >= m.getParameterCount()) return;
+      const v = value(m.getParameterValueByIndex(i));
+      m.setParameterValueByIndex(i, Math.min(m.getParameterMaximumValue(i), Math.max(m.getParameterMinimumValue(i), v)));
+    };
+    for (const p of expression ? this.expressionParameters(expression) : []) {
+      set(p.Id, (cur) => (p.Blend === "Multiply" ? cur * p.Value : p.Blend === "Overwrite" ? p.Value : cur + p.Value));
+    }
+    for (const [id, value] of Object.entries(extra)) set(id, () => value);
+    m.update();
   }
 
   update(dt: number): void {

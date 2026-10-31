@@ -1,8 +1,9 @@
-// Maps the fixed emotion/action vocabulary the LLM uses onto whatever this model actually has,
-// by matching expression and motion labels (model3 names, VTS hotkeys, or file names).
-// M4 replaces the keyword table with LLM-assisted labelling; the interface stays the same.
+// Maps the fixed emotion/action vocabulary the LLM uses onto whatever this model actually has.
+// With a learned profile (brain/labeler.ts) each expression's meaning comes from looking at it;
+// before that, or for expressions it could not label, from keywords in the labels.
 
 import { NOT_A_FEELING, pairGestures, type Gesture } from "../behavior/reactions";
+import { EMOTIONS, type ExpressionMeaning, type LearnedProfile } from "../model/semantics";
 import type { ModelProfile } from "../model/types";
 
 const EMOTION_PATTERNS: Record<string, RegExp> = {
@@ -34,18 +35,45 @@ export interface ExpressionMap {
   emotions: Map<string, string>;
   /** action -> gesture */
   actions: Map<string, Gesture>;
+  /** emotion -> what it looks like on this model, when learned ("heart-shaped pupils") */
+  looks: Map<string, string>;
+  /** Pleasant expressions for being patted; empty means "decide by label". */
+  pats: string[];
 }
 
-export function buildExpressionMap(profile: ModelProfile): ExpressionMap {
-  const feelings = profile.expressions.filter((e) => !NOT_A_FEELING.test(e.label));
+export function buildExpressionMap(profile: ModelProfile, learned?: LearnedProfile | null): ExpressionMap {
+  const meaning = new Map<string, ExpressionMeaning>((learned?.expressions ?? []).map((m) => [m.name, m]));
+  // Learned non-feelings (props, outfits, nothing visible) never stand for an emotion.
+  const feelings = profile.expressions.filter((e) => {
+    const m = meaning.get(e.name);
+    return m ? m.kind === "emotion" : !NOT_A_FEELING.test(e.label);
+  });
+
   const emotions = new Map<string, string>();
-  for (const [emotion, re] of Object.entries(EMOTION_PATTERNS)) {
-    const hit = feelings.find((e) => re.test(e.label));
+  const looks = new Map<string, string>();
+  for (const emotion of EMOTIONS) {
+    const learnedHits = feelings.map((e) => meaning.get(e.name)).filter((m) => m?.emotion === emotion) as ExpressionMeaning[];
+    const best = learnedHits.find((m) => m.intensity === "high") ?? learnedHits[0];
+    if (best) {
+      emotions.set(emotion, best.name);
+      if (best.look) looks.set(emotion, best.look);
+      continue;
+    }
+    // Keywords only for expressions the labeller did not claim for another emotion.
+    const hit = feelings.find((e) => !meaning.get(e.name)?.emotion && EMOTION_PATTERNS[emotion].test(e.label));
     if (hit) emotions.set(emotion, hit.name);
   }
   for (const [emotion, other] of Object.entries(FALLBACK)) {
-    if (!emotions.has(emotion) && emotions.has(other)) emotions.set(emotion, emotions.get(other)!);
+    if (!emotions.has(emotion) && emotions.has(other)) {
+      emotions.set(emotion, emotions.get(other)!);
+      if (looks.has(other)) looks.set(emotion, looks.get(other)!);
+    }
   }
+
+  const pats = feelings
+    .map((e) => meaning.get(e.name))
+    .filter((m): m is ExpressionMeaning => !!m && m.valence > 0.2 && m.emotion !== "thinking")
+    .map((m) => m.name);
 
   const gestures = pairGestures(profile.motions.filter((m) => m.group !== profile.idleGroup));
   const actions = new Map<string, Gesture>();
@@ -53,5 +81,5 @@ export function buildExpressionMap(profile: ModelProfile): ExpressionMap {
     const hit = gestures.find((g) => re.test(g.open.label));
     if (hit) actions.set(action, hit);
   }
-  return { emotions, actions };
+  return { emotions, actions, looks, pats };
 }
