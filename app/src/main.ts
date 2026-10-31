@@ -5,6 +5,7 @@ import { currentMonitor, getCurrentWindow, LogicalPosition, LogicalSize } from "
 import { ask, message, open } from "@tauri-apps/plugin-dialog";
 import { AgentFace, type AgentEvent } from "./behavior/agentFace";
 import { Companion } from "./behavior/companion";
+import { addFocusToday, FocusSession, focusLines, type FrontApp } from "./behavior/focus";
 import { Interaction, type WindowBox } from "./behavior/interaction";
 import { Mood } from "./behavior/mood";
 import { Reactions } from "./behavior/reactions";
@@ -17,6 +18,7 @@ import { profileKey, type LearnedProfile } from "./model/semantics";
 import { PetModel } from "./renderer/petModel";
 import { Stage, startCubism } from "./renderer/stage";
 import { ChatUI } from "./ui/chatUi";
+import { FocusUI } from "./ui/focusUi";
 
 interface Settings {
   modelPath?: string | null;
@@ -43,6 +45,9 @@ interface HookStatus {
 
 /** Greet again after being away this long. */
 const GREET_AFTER_HOURS = 6;
+const FOCUS_BREAK_MS = 5 * 60_000;
+/** How often Focus Partner looks at which app is in front. */
+const FRONT_APP_POLL_S = 5;
 
 const win = getCurrentWindow();
 const toastEl = document.getElementById("toast")!;
@@ -156,6 +161,8 @@ async function main(): Promise<void> {
   const cached = await loadLearned(learnedKey);
   if (cached) useLearned(cached);
   const ui = new ChatUI();
+  const zh = navigator.language.toLowerCase().startsWith("zh");
+  let focus: FocusSession | null = null;
   const chat = new ChatSession(async () =>
     systemPrompt({
       name: settings.characterName || profile.name,
@@ -164,6 +171,7 @@ async function main(): Promise<void> {
       moodLine: mood.describe(),
       emotions: [...map.emotions.keys()],
       looks: Object.fromEntries(map.looks),
+      focus: focus && { task: focus.task, minutesLeft: Math.ceil(focus.remainingMs(Date.now()) / 60_000) },
       actions: [...map.actions.keys()],
       now: new Date(),
       locale: navigator.language,
@@ -186,7 +194,7 @@ async function main(): Promise<void> {
       const jump = terminal ? () => void invoke("focus_terminal", { terminal }).catch((e) => console.warn(e)) : undefined;
       void companion.remark(r.note, r.fallback, jump);
     }
-  }, navigator.language.toLowerCase().startsWith("zh"));
+  }, zh);
   await listen<AgentEvent>("agent://event", ({ payload }) => agentFace.handle(payload));
   setInterval(() => agentFace.tick(), 1000);
 
@@ -207,6 +215,77 @@ async function main(): Promise<void> {
       learning = false;
     }
   };
+
+  // Focus Partner: she works next to you; see behavior/focus.ts.
+  const focusUi = new FocusUI(zh);
+  const lines = focusLines(zh);
+  let lastFocus = { task: "", minutes: 25 };
+  let breakTimer = 0;
+  const flash = (emotion: string, ms: number) => {
+    const name = map.emotions.get(emotion);
+    if (name) reactions.express(name, ms);
+  };
+  const startFocus = (task: string, minutes: number) => {
+    clearTimeout(breakTimer);
+    focus = new FocusSession(task, minutes, Date.now());
+    lastFocus = { task, minutes };
+    companion.focused = true;
+    focusUi.show(task, focus.remainingMs(Date.now()));
+    ui.say(lines.started(task, minutes));
+    flash("happy", 2500);
+  };
+  const endFocus = (completed: boolean) => {
+    if (!focus) return;
+    const { task } = focus;
+    const minutes = focus.focusedMinutes(Date.now());
+    focus = null;
+    companion.focused = false;
+    focusUi.hide();
+    if (!completed) {
+      ui.say(lines.stopped(minutes));
+      return;
+    }
+    const today = addFocusToday(minutes);
+    mood.onEmotion("happy");
+    // Asides give way to a conversation; this one waits for it to end instead of being dropped.
+    const celebrate = () => {
+      if (chat.busy) return void setTimeout(celebrate, 2000);
+      void companion.remark(
+        `(System note, not from the user: the user just finished a ${minutes}-minute focus session on "${task}"; ` +
+          `${today} focused minutes today. Congratulate them in one short sentence and suggest a 5-minute break.)`,
+        lines.done(task, minutes),
+      );
+    };
+    celebrate();
+    breakTimer = window.setTimeout(() => {
+      if (!focus) ui.say(lines.breakOver(task), false, () => startFocus(task, lastFocus.minutes));
+    }, FOCUS_BREAK_MS);
+  };
+  focusUi.onWantFocus = () => win.setFocus();
+  focusUi.onStart = startFocus;
+  focusUi.onStop = () => endFocus(false);
+  let focusTicks = 0;
+  setInterval(async () => {
+    if (!focus) return;
+    const now = Date.now();
+    focusUi.update(focus.remainingMs(now));
+    const look = focusTicks++ % FRONT_APP_POLL_S === 0;
+    const app = look ? await invoke<FrontApp | null>("front_app").catch(() => null) : null;
+    const signal = focus?.observe(app, Date.now());
+    if (!signal) return;
+    if (import.meta.env.DEV) console.info(`[pet] focus: ${signal.type}`);
+    if (signal.type === "done") return endFocus(true);
+    if (chat.busy || ui.inputOpen) return;
+    if (signal.type === "drift") {
+      ui.murmur(lines.drift());
+      flash("thinking", 4000);
+    } else if (signal.type === "back") {
+      ui.say(lines.back(focus!.task));
+      flash("happy", 2500);
+    } else {
+      ui.murmur(lines.murmur());
+    }
+  }, 1000);
 
   ui.onWantFocus = () => win.setFocus();
   ui.onSubmit = (text) => void companion.talk(text);
@@ -249,6 +328,9 @@ async function main(): Promise<void> {
       save({ height: SIZES[id], x: box.x, y: box.y });
     } else if (id === "chat") {
       await ui.openInput();
+    } else if (id === "focus") {
+      if (focus) endFocus(false);
+      else await focusUi.open(lastFocus.task);
     } else if (id === "agents") {
       await manageAgents();
     } else if (id === "pick-model") {
@@ -288,9 +370,12 @@ async function main(): Promise<void> {
   setInterval(() => companion.tick(30), 30_000);
   if (import.meta.env.DEV) {
     // Lets scripts drive a chat turn: echo "hi" > /tmp/logitmate-say.txt
+    // or a focus session: echo "/focus 0.5 write tests" > /tmp/logitmate-say.txt
     setInterval(async () => {
       const text = await invoke<string | null>("debug_take_input");
-      if (text) void companion.talk(text);
+      const focusCmd = text?.match(/^\/focus\s+([\d.]+)\s+(.+)$/);
+      if (focusCmd) startFocus(focusCmd[2], Number(focusCmd[1]));
+      else if (text) void companion.talk(text);
     }, 1000);
   }
   const firstRun = mood.state.affection === 0 && (await invoke<unknown[]>("memory_recent", { limit: 1 })).length === 0;

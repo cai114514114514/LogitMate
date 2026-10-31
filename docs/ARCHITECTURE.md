@@ -12,7 +12,8 @@ Tauri 2 (Rust, app/src-tauri)                     WebView (TypeScript, app/src)
 ├─ secrets.rs     API key: env → .env → Keychain   ├─ behavior/reactions.ts   expressions/gestures by label
 ├─ profiles.rs    learned model profiles (cache)   ├─ behavior/mood.ts        emotion engine v1
 ├─ agents.rs      Agent Face bridge (127.0.0.1)    ├─ behavior/companion.ts   chat turn ↔ body, greeting, fidgets
-└─ agent_hooks.rs connect Claude Code / Codex      ├─ behavior/agentFace.ts   reactions to coding agents
+├─ agent_hooks.rs connect Claude Code / Codex      ├─ behavior/agentFace.ts   reactions to coding agents
+└─ front_app.rs   frontmost app name (Focus)       ├─ behavior/focus.ts       Focus Partner session rules
                                                    ├─ model/semantics.ts      expression meanings: prompt, parsing
                                                    ├─ renderer/stills.ts      stills: face box, change box, close-ups
                                                    ├─ brain/labeler.ts        stills → vision model → learned profile
@@ -20,7 +21,8 @@ Tauri 2 (Rust, app/src-tauri)                     WebView (TypeScript, app/src)
                                                    ├─ brain/expressions.ts    emotion/action vocabulary → this model
                                                    ├─ brain/prompt.ts         system prompt
                                                    ├─ brain/chat.ts           history, streaming, tag routing
-                                                   └─ ui/chatUi.ts            speech bubble and input
+                                                   ├─ ui/chatUi.ts            speech bubble and input
+                                                   └─ ui/focusUi.ts           focus form and time pill
 ```
 
 ## Loading a model
@@ -65,6 +67,15 @@ Expression names range from 爱心眼 to `exp_03`, so names alone can't say what
 
 Research behind it: Xpress (arXiv 2503.00283), an LLM choosing from a pre-rendered expression bank with descriptions and intensity; the GPT-4V emotion benchmark (arXiv 2312.04293), where large image batches drop items and subtle expressions are missed; Live Emoji (arXiv 1902.03529), valence and arousal attached to each expression.
 
+## Focus Partner (M3)
+Body doubling on the desktop: *Focus With Me…* asks for the task and a length (25/50/90 min), then she works next to you.
+- **Visible task**: a pill above her head shows the time left and the task the whole session, and when you come back from a detour she names the task again.
+- **What she knows**: `front_app` (Rust, NSWorkspace) returns only the frontmost app's name and bundle id, polled every 5 s during a session. `FocusSession` uses it locally; it is never sent to the LLM and she never says it.
+- **Rules** (`behavior/focus.ts`, unit-tested with a fake clock): apps used in the first 3 minutes are the task's apps (common leisure apps never are); 3 minutes away gives one self-talk aside, at most every 10 minutes; staying 8 more minutes in that app adopts it as work; a murmur every 11–17 minutes while working; at the end she congratulates you (LLM, waits for any ongoing chat), adds to today's total, and offers another round after a 5-minute break.
+- **While focused**: no idle fidgets, and the system prompt asks her to keep replies short and steer back to the task. Agent Face still reports.
+- **Research**: an AI body double raised efficiency as much as a human one and was valued for not judging (Ara et al., arXiv 2509.12153); developers with ADHD asked for private, non-intrusive check-ins and no surveillance (Pimenova et al., arXiv 2609.21254); after a diversion people took 11–16 minutes to resume, sooner when the suspended task stayed visible (Iqbal & Horvitz, CHI 2007).
+- Dev builds: `echo "/focus 0.5 write tests" > /tmp/logitmate-say.txt` starts a 30-second session.
+
 ## Emotion engine v1
 `Mood` keeps mood (−1..1, half-life 10 min toward 0.2), energy (from the local hour) and affection (pats +1, chats +0.5), persisted in localStorage. It feeds the prompt, greetings (first meeting, or back after 6 h) and idle fidgets (after 4 quiet minutes, more often when energetic).
 
@@ -80,7 +91,7 @@ Research behind it: Xpress (arXiv 2503.00283), an LLM choosing from a pre-render
 cd app
 pnpm install
 pnpm sync:cubism              # after placing the SDK in app/vendor/cubism
-pnpm test                     # adapter, tags, expressions, prompt, mood, gestures, semantics, stills
+pnpm test                     # adapter, tags, expressions, prompt, mood, gestures, semantics, stills, focus
 (cd src-tauri && cargo test)  # settings, folder listing, cursor math, SSE, .env, memory, profiles
 LOGITMATE_MODEL=/path/to/x.model3.json pnpm tauri dev
 echo "hello" > /tmp/logitmate-say.txt   # dev builds: send a chat message from a script

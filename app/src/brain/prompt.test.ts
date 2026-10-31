@@ -33,4 +33,10 @@ describe("systemPrompt", () => {
     expect(p).toContain("On your face: shy = pink cheeks.");
     expect(p).not.toContain("heart eyes");
   });
+
+  it("mentions a focus session in progress", () => {
+    const p = systemPrompt({ ...base, focus: { task: "write the report", minutesLeft: 12 } });
+    expect(p).toContain('working on "write the report" (12 min left)');
+    expect(systemPrompt(base)).not.toContain("focus session");
+  });
 });

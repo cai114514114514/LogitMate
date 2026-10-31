@@ -67,10 +67,17 @@ export class ChatUI {
     if (onClick !== undefined || !streaming) this.bubbleAction = onClick ?? null;
     this.bubble.classList.toggle("actionable", !!this.bubbleAction);
     this.bubble.classList.toggle("thinking", text === "");
+    this.bubble.classList.remove("murmur");
     this.text.textContent = text || "…";
     this.bubble.hidden = false;
     this.bubble.scrollTop = this.bubble.scrollHeight;
     if (!streaming) this.done();
+  }
+
+  /** Self-talk: shown quieter, not addressed to the user. */
+  murmur(text: string): void {
+    this.say(text);
+    this.bubble.classList.add("murmur");
   }
 
   /** Starts the countdown to hide the bubble, longer for longer text. */

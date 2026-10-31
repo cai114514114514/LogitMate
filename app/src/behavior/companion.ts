@@ -22,6 +22,8 @@ export interface CompanionDeps {
 
 export class Companion {
   private lastInteraction = Date.now();
+  /** In a focus session: no idle fidgeting. */
+  focused = false;
 
   constructor(private d: CompanionDeps) {}
 
@@ -79,7 +81,7 @@ export class Companion {
   tick(seconds: number): void {
     this.d.mood.tick(seconds);
     const quiet = Date.now() - this.lastInteraction > IDLE_BEFORE_FIDGET_MS;
-    if (quiet && !this.d.chat.busy && Math.random() < 0.15 * this.d.mood.energy()) {
+    if (quiet && !this.focused && !this.d.chat.busy && Math.random() < 0.15 * this.d.mood.energy()) {
       if (Math.random() < 0.5) this.d.reactions.gesture();
       else this.d.reactions.pat();
     }

@@ -10,6 +10,8 @@ export interface PromptInput {
   looks?: Record<string, string>;
   actions: string[];
   now: Date;
+  /** A focus session in progress. */
+  focus?: { task: string; minutesLeft: number } | null;
   /** System locale, used before the user has written anything. */
   locale: string;
 }
@@ -36,6 +38,12 @@ export function systemPrompt(p: PromptInput): string {
     "",
     `Right now: ${time}. ${p.moodLine}`,
   );
+  if (p.focus) {
+    lines.push(
+      `You and the user are in a focus session: they are working on "${p.focus.task}" (${p.focus.minutesLeft} min left) while you work next to them.`,
+      "Keep replies extra short, don't start new topics, and gently steer them back to the task.",
+    );
+  }
   if (p.facts.length) lines.push("", "What you know about the user:", ...p.facts.map((f) => `- ${f}`));
   if (p.persona?.trim()) lines.push("", "Your persona:", p.persona.trim());
   return lines.join("\n");

@@ -72,12 +72,14 @@ body {
   }
 }
 
-#ask {
+#ask,
+#focus {
   width: 100%;
   pointer-events: auto;
 }
 
-#ask-input {
+#ask-input,
+#focus-task {
   width: 100%;
   box-sizing: border-box;
   padding: 7px 12px;
@@ -93,7 +95,8 @@ body {
   -webkit-user-select: text;
 }
 
-#ask-input:focus {
+#ask-input:focus,
+#focus-task:focus {
   border-color: var(--accent);
 }
 
@@ -125,4 +128,80 @@ body {
 #bubble.actionable::after {
   content: " ↗";
   color: var(--accent);
+}
+
+/* Self-talk while working: quieter than speech. */
+#bubble.murmur {
+  color: rgba(29, 34, 51, 0.62);
+  font-style: italic;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: none;
+}
+
+#focus {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+#focus-lengths {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+#focus-lengths button {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--edge);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#focus-lengths button.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Time left and the task, kept in view above her head. */
+#focus-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 4px 3px 10px;
+  border-radius: 999px;
+  background: rgba(20, 24, 40, 0.72);
+  color: #fff;
+  font-size: 12px;
+  pointer-events: auto;
+}
+
+#focus-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+#focus-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+#focus-stop {
+  border: 0;
+  border-radius: 999px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-size: 13px;
+  line-height: 18px;
+  cursor: pointer;
 }

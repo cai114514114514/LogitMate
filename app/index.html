@@ -14,6 +14,13 @@
       <form id="ask" class="ui" hidden autocomplete="off">
         <input id="ask-input" placeholder="Say something… (Esc to close)" spellcheck="false" />
       </form>
+      <form id="focus" class="ui" hidden autocomplete="off">
+        <input id="focus-task" spellcheck="false" />
+        <div id="focus-lengths"></div>
+      </form>
+      <div id="focus-pill" class="ui" hidden>
+        <span id="focus-time"></span><span id="focus-label"></span><button id="focus-stop" type="button">×</button>
+      </div>
     </div>
     <canvas id="stage"></canvas>
     <div id="toast" hidden></div>

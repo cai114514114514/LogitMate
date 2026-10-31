@@ -1,6 +1,7 @@
 mod agent_hooks;
 mod agents;
 mod cursor;
+mod front_app;
 mod llm;
 mod memory;
 mod model_files;
@@ -205,6 +206,12 @@ fn agents_disconnect() -> Result<agent_hooks::HookStatus, String> {
     agent_hooks::disconnect(&hook_paths()?)
 }
 
+/// Name and bundle id of the frontmost app (Focus Partner); nothing else about it is read.
+#[tauri::command]
+fn front_app() -> Option<front_app::FrontApp> {
+    front_app::frontmost()
+}
+
 /// Brings an agent's terminal to the front. Only known terminals, by bundle id.
 #[tauri::command]
 fn focus_terminal(terminal: String) -> Result<(), String> {
@@ -270,6 +277,7 @@ pub fn run() {
             agents_connect,
             agents_disconnect,
             focus_terminal,
+            front_app,
             log
         ])
         .setup(|app| {
