@@ -23,6 +23,8 @@ export class Speaker {
   private analyser: AnalyserNode | null = null;
   private buffer = "";
   private quiet = false;
+  /** Nothing of the current line has been sent yet: cut its first piece at a comma. */
+  private lineStart = true;
   private queue: Promise<AudioBuffer | null>[] = [];
   private waiting: { text: string; quiet: boolean }[] = [];
   private source: AudioBufferSourceNode | null = null;
@@ -47,9 +49,13 @@ export class Speaker {
     if (fresh) this.stop();
     this.quiet = quiet;
     this.buffer += text;
-    const { sentences, rest } = splitSentences(this.buffer);
-    this.buffer = rest;
-    for (const s of sentences) this.enqueue(s);
+    for (;;) {
+      const { sentences, rest } = splitSentences(this.buffer, false, this.lineStart);
+      this.buffer = rest;
+      for (const s of sentences) this.enqueue(s);
+      if (!sentences.length || !this.lineStart) break;
+      this.lineStart = false;
+    }
   }
 
   /** The line is complete: speak whatever is left. */
@@ -58,10 +64,12 @@ export class Speaker {
     const { sentences } = splitSentences(this.buffer, true);
     this.buffer = "";
     for (const s of sentences) this.enqueue(s);
+    this.lineStart = true;
   }
 
   stop(): void {
     this.generation++;
+    this.lineStart = true;
     this.buffer = "";
     this.queue = [];
     this.waiting = [];
@@ -118,9 +126,13 @@ export class Speaker {
     const gen = this.generation;
     while (this.queue.length < LOOKAHEAD && this.waiting.length) {
       const { text } = this.waiting.shift()!;
+      const started = performance.now();
       this.queue.push(
         invoke<string>("tts_speak", { key: this.voiceKey, text, direction: "", zh: this.zh })
-          .then((b64) => (gen === this.generation ? this.decode(b64) : null))
+          .then((b64) => {
+            if (import.meta.env.DEV) console.info(`[pet] tts ${Math.round(performance.now() - started)} ms: ${text}`);
+            return gen === this.generation ? this.decode(b64) : null;
+          })
           .catch((e) => {
             if (gen === this.generation) this.onError(e);
             return null;

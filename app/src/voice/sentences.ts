@@ -2,20 +2,24 @@
 // sentence instead of waiting for the whole reply.
 
 const END = /[。！？!?…\n]+["'”’）)]*|[.;；](?=\s|$)/g;
+/** For the first piece of a line, a comma is enough: speech starts sooner. */
+const EAGER_END = /[。！？!?…\n，,、]+["'”’）)]*|[.;；](?=\s|$)/g;
 /** Shorter pieces wait to join the next sentence ("嗯。" alone sounds clipped). */
 const MIN_CHARS = 4;
 /** Without an ending, a long run is cut at a comma so the first audio is not delayed. */
 const MAX_CHARS = 60;
 
-export function splitSentences(buffer: string, flush = false): { sentences: string[]; rest: string } {
+export function splitSentences(buffer: string, flush = false, eager = false): { sentences: string[]; rest: string } {
   const sentences: string[] = [];
   let start = 0;
   let pending = "";
-  for (const m of buffer.matchAll(END)) {
+  for (const m of buffer.matchAll(eager ? EAGER_END : END)) {
+    // Only the first piece is cut eagerly; the rest waits for whole sentences.
+    if (eager && sentences.length) break;
     const end = m.index! + m[0].length;
     const piece = pending + buffer.slice(start, end);
     start = end;
-    if (piece.trim().length < MIN_CHARS) {
+    if (piece.trim().length < (eager ? 3 : MIN_CHARS)) {
       pending = piece;
       continue;
     }

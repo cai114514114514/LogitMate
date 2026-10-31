@@ -527,9 +527,11 @@ async function main(): Promise<void> {
       `textures ${(model.textureMemoryBytes / 2 ** 20).toFixed(0)} MB`,
   );
 
-  setInterval(() => {
+  setInterval(async () => {
     companion.tick(30);
     syncLife();
+    // A MiMo key added while she runs takes effect without a restart.
+    if (settings.speak !== false && !auditioning) speaker.enabled = (await ttsStatus()).available;
   }, 30_000);
   if (import.meta.env.DEV) {
     // Lets scripts drive a chat turn: echo "hi" > /tmp/logitmate-say.txt

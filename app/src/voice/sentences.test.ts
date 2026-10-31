@@ -16,6 +16,11 @@ describe("splitSentences", () => {
     expect(splitSentences("最后一句", true)).toEqual({ sentences: ["最后一句"], rest: "" });
   });
 
+  it("starts a line at its first comma when eager", () => {
+    expect(splitSentences("好呀，我们一起做吧！然后", false, true)).toEqual({ sentences: ["好呀，"], rest: "我们一起做吧！然后" });
+    expect(splitSentences("嗯，", false, true).sentences).toEqual([]);
+  });
+
   it("cuts a long run at a comma", () => {
     const long = "这是一个很长很长的句子，" + "字".repeat(60);
     const { sentences } = splitSentences(long);
