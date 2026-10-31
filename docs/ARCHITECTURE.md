@@ -18,6 +18,7 @@ Tauri 2 (Rust, app/src-tauri)                     WebView (TypeScript, app/src)
 ├─ agent_hooks.rs connect Claude Code / Codex      ├─ behavior/agentFace.ts   reactions to coding agents
 ├─ front_app.rs   frontmost app name (Focus)       ├─ behavior/focus.ts       Focus Partner session rules
 ├─ screen.rs      screenshot on request            ├─ brain/look.ts           "look at my screen" requests
+                                                   ├─ brain/watch.ts          Watch Over Me: glances, rare remarks
 └─ tts.rs         Xiaomi MiMo speech               ├─ voice/speaker.ts        sentence-by-sentence speech, audio-driven mouth
                                                    ├─ voice/sentences.ts      sentence cutting, emotion style tags
                                                    └─ voice/design.ts         a voice that fits the character
@@ -109,6 +110,14 @@ She sees the screen only when asked: *Look at My Screen* in the menu, or a chat 
 - `screen_capture` (Rust) checks Screen Recording access (`CGPreflightScreenCaptureAccess`; without it, asks macOS and tells the user what to enable), captures the display she is on with `screencapture -R`, scales it to 1800 px with `sips`, deletes the temporary file at once and returns a JPEG. Nothing is kept.
 - The message goes to the vision model with the image attached; memory stores only the text plus "[shared a screenshot]". She turns toward the middle of the screen while she looks.
 - Legibility: DeepSeek's vision model read 12 px text in a 1600×1000 test image verbatim (about 1000 prompt tokens), so the full display at 1800 px works without tiling.
+
+## Watch Over Me (opt-in)
+Off by default; ticking *Watch Over Me* explains what happens and asks first (`brain/watch.ts`).
+- Every 4–8 minutes (random) she glances: she turns toward the screen and 👀 shows while the screenshot is taken. The vision model gets the image, the time, the frontmost app, any focus task and her last remarks, and answers `{say, line, emotion, urgent}`. Almost always she stays quiet.
+- She speaks for errors or stuck moments (with a hint when the screen makes it obvious), something just finished, something fun on screen, or late-night work; never quoting private content. At most one remark per 15 minutes unless it is urgent. Remarks are not stored in the conversation.
+- She does not look while you talk to her, while she speaks or dozes, when nobody has typed or moved the mouse for 3 minutes (`user_idle`: `CGEventSourceSecondsSinceLastEventType`, no permission needed), or with a meeting, screen-sharing or password app in front.
+- In a focus session she only speaks when you look stuck or have drifted off the task.
+- Typing now also keeps her from dozing off, and wakes her.
 
 ## Voice (M3)
 Text to speech with Xiaomi MiMo V2.5 (`tts.rs`): OpenAI-style chat completions where the assistant message is the text and an `audio` field picks the voice; the reply carries base64 WAV. Built-in voices (冰糖, Mia…), VoiceDesign (a voice from a description) and VoiceClone (a voice from a sample). The key is `MIMO_API_KEY`/`mimo_api` (env, `.env`, then Keychain) and never reaches the webview.

@@ -7,7 +7,8 @@ She stands on your desktop, follows your cursor with her eyes, sways when you dr
 - **Alive on any rig.** Her eyes dart and her head follows, her mouth moves as her words appear, she nods, tilts, hops and looks away, hums, stretches, yawns at night and dozes off when you're gone. Stroke her head with the cursor to pet her; shake it at her and she gets dizzy.
 - **Any model, zero setup.** On first launch with a new model she looks at each of its expressions (rendered offscreen) and a vision model works out what they mean — heart eyes, blush, a loading spinner, a prop, an outfit — whatever the files are called.
 - **A voice that fits her.** With a Xiaomi MiMo key she speaks her replies, in a voice a vision model designs from how she looks (you audition and keep one), with her mood in her tone and her mouth following the audio.
-- **Looks at your screen when you ask.** "Can you check this?" — she takes one screenshot, reads it with a vision model and helps; never on her own, and nothing is kept.
+- **Looks at your screen when you ask.** "Can you check this?" — she takes one screenshot, reads it with a vision model and helps; nothing is kept.
+- **Watches over you, if you want.** Opt in and she glances at your screen every few minutes, stays quiet, and speaks up only when it helps: a build that keeps failing, something you finished, working too late. Never during meetings or with a password manager open.
 - **A focus partner.** Tell her what you're working on and she works next to you: the task and time stay above her head, she notices (from the app name only, kept on your Mac) when you drift and quietly waits for you, and celebrates when you finish.
 - **The face of your coding agents.** Connected to Claude Code or Codex (opt-in, from the menu), she thinks along while they work, tells you when they need you, and cheers when long tasks finish.
 
