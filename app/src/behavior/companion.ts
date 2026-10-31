@@ -65,6 +65,7 @@ export class Companion {
       );
       if (!reply) ui.say(fallback, false, onClick);
       else ui.done();
+      if (import.meta.env.DEV) console.info(`[pet] remark: ${reply || fallback}`);
     } catch {
       ui.say(fallback, false, onClick);
     }

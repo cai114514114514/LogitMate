@@ -35,6 +35,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         ],
     )?;
     let pick = MenuItem::with_id(app, "pick-model", "Choose Model…", true, None::<&str>)?;
+    let settings_item = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let about = MenuItem::with_id(app, "about", "About This Model", true, None::<&str>)?;
     let relearn = MenuItem::with_id(app, "relearn", "Relearn Expressions", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit LogitMate", true, None::<&str>)?;
@@ -55,6 +56,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             &aside,
             &size,
             &pick,
+            &settings_item,
             &about,
             &relearn,
             &forget,
@@ -71,6 +73,9 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             let Some(win) = app.get_webview_window("main") else { return };
             match id {
                 "quit" => app.exit(0),
+                "settings" => {
+                    let _ = crate::settings_window(app);
+                }
                 "toggle" => {
                     let _ = if win.is_visible().unwrap_or(false) { win.hide() } else { win.show() };
                 }

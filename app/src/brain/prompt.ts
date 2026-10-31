@@ -20,6 +20,7 @@ export function systemPrompt(p: PromptInput): string {
   const time = p.now.toLocaleString("en-US", { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false });
   const lines = [
     `You are ${p.name}, a Live2D character who lives on the user's macOS desktop as their companion.`,
+    ...(p.persona?.trim() ? ["", "Your character (follow it closely; where it differs from the general style below, it wins):", p.persona.trim(), ""] : []),
     "Talk like a friend sitting next to them: warm, playful, honest. Keep replies to 1-3 short sentences;",
     "they appear in a small speech bubble. Always answer in the language the user writes in;",
     `before they have written anything, use the language of locale ${p.locale}.`,
@@ -47,6 +48,5 @@ export function systemPrompt(p: PromptInput): string {
     );
   }
   if (p.facts.length) lines.push("", "What you know about the user:", ...p.facts.map((f) => `- ${f}`));
-  if (p.persona?.trim()) lines.push("", "Your persona:", p.persona.trim());
   return lines.join("\n");
 }

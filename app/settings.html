@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LogitMate Settings</title>
+    <link rel="stylesheet" href="/src/settings.css" />
+    <script type="module" src="/src/settings.ts"></script>
+  </head>
+  <body>
+    <main>
+      <section>
+        <h2>Her persona</h2>
+        <p class="hint">For the current model, <b id="model-name">…</b>. Saved on this Mac only; switching models switches characters.</p>
+        <label>Name <input id="name" spellcheck="false" /></label>
+        <label>Persona <textarea id="persona" rows="16" spellcheck="false" placeholder="Who she is, how she talks, her habits and limits…"></textarea></label>
+        <div class="row">
+          <button id="draft">Draft from her look</button>
+          <span class="spacer"></span>
+          <button id="save-persona" class="primary">Save</button>
+        </div>
+        <p id="persona-status" class="status"></p>
+      </section>
+      <section>
+        <h2>API keys</h2>
+        <p class="hint">Saved to the macOS Keychain and only used by LogitMate itself. A key in the environment or .env takes precedence.</p>
+        <label>DeepSeek (chat, vision) <span id="deepseek-state" class="badge"></span><input id="deepseek-key" type="password" autocomplete="off" placeholder="Leave empty to keep" /></label>
+        <label>Xiaomi MiMo (voice) <span id="mimo-state" class="badge"></span><input id="mimo-key" type="password" autocomplete="off" placeholder="Leave empty to keep" /></label>
+        <div class="row">
+          <span class="spacer"></span>
+          <button id="save-keys" class="primary">Save keys</button>
+        </div>
+        <p id="keys-status" class="status"></p>
+      </section>
+    </main>
+  </body>
+</html>

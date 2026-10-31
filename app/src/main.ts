@@ -1,6 +1,6 @@
 import "./log";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { availableMonitors, currentMonitor, getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
 import { ask, message, open } from "@tauri-apps/plugin-dialog";
 import { AgentFace, type AgentEvent } from "./behavior/agentFace";
@@ -16,6 +16,7 @@ import { ChatSession } from "./brain/chat";
 import { buildExpressionMap, type ExpressionMap } from "./brain/expressions";
 import { learnExpressions, loadLearned, stillJpeg } from "./brain/labeler";
 import { isLookRequest } from "./brain/look";
+import { loadPersona, parsePersonaDraft, personaDraftMessages, savePersona, type Persona } from "./brain/persona";
 import { AWAY_MS, glanceGap, initialWatch, isPrivateApp, mayRemark, noteRemark, parseWatch, watchMessages } from "./brain/watch";
 import { systemPrompt } from "./brain/prompt";
 import { readModelSource } from "./model/loader";
@@ -179,13 +180,17 @@ async function main(): Promise<void> {
   };
   const cached = await loadLearned(learnedKey);
   if (cached) useLearned(cached);
+  // Who she is for this model (brain/persona.ts); older single-persona settings still apply.
+  let persona: Persona | null = await loadPersona(modelPath);
+  const herName = () => persona?.name || settings.characterName || profile.name;
+  const herPersona = () => persona?.persona ?? settings.persona;
   const ui = new ChatUI();
   const zh = navigator.language.toLowerCase().startsWith("zh");
   let focus: FocusSession | null = null;
   const chat = new ChatSession(async () =>
     systemPrompt({
-      name: settings.characterName || profile.name,
-      persona: settings.persona,
+      name: herName(),
+      persona: herPersona(),
       facts: await invoke<string[]>("memory_facts", { limit: 40 }),
       moodLine: mood.describe(),
       emotions: [...map.emotions.keys()],
@@ -283,7 +288,7 @@ async function main(): Promise<void> {
     try {
       ui.say(zh ? "（让我想想，我的声音应该是什么样的…）" : "(Let me think about what I should sound like…)", true);
       const still = await stage.still(() => model.poseStill(null));
-      const brief = await writeBrief(settings.characterName || profile.name, settings.persona, zh, stillJpeg(still));
+      const brief = await writeBrief(herName(), herPersona(), zh, stillJpeg(still));
       console.info(`[pet] voice brief: ${brief.description}`);
       for (let i = 1; i <= 4; i++) {
         ui.say(zh ? `（试音 ${i}…）` : `(Audition ${i}…)`, true);
@@ -310,6 +315,44 @@ async function main(): Promise<void> {
       auditioning = false;
     }
   };
+
+  // Persona drafting for Settings (only this window can render a still of her), and reloading
+  // after the user edits it.
+  const draftPersona = async () => {
+    const still = await stage.still(() => model.poseStill(null));
+    const reply = await invoke<string>("llm_complete", {
+      messages: personaDraftMessages(profile.name, zh, stillJpeg(still)),
+      json: true,
+      vision: true,
+    });
+    const draft = parsePersonaDraft(reply);
+    if (!draft) throw new Error("the reply had no persona");
+    return draft;
+  };
+  await listen("persona:draft", async () => {
+    try {
+      await emit("persona:drafted", await draftPersona());
+    } catch (e) {
+      await emit("persona:draft-failed", String(e).slice(0, 160));
+    }
+  });
+  await listen("persona:changed", async () => {
+    persona = await loadPersona(modelPath);
+  });
+  // A new model with no persona gets a draft of her own (editable in Settings).
+  if (!persona && !settings.persona && (await invoke<boolean>("has_api_key"))) {
+    setTimeout(async () => {
+      try {
+        const draft = await draftPersona();
+        // One may have been written or imported in the meantime.
+        if (persona || (await loadPersona(modelPath))) return;
+        persona = await savePersona(modelPath, draft);
+        console.info(`[pet] drafted a persona: ${persona.name}`);
+      } catch (e) {
+        console.warn("[pet] persona draft failed", e);
+      }
+    }, 15_000);
+  }
 
   // Focus Partner: she works next to you; see behavior/focus.ts.
   const focusUi = new FocusUI(zh);
@@ -423,8 +466,8 @@ async function main(): Promise<void> {
     const reply = await invoke<string>("llm_complete", {
       messages: watchMessages(
         {
-          name: settings.characterName || profile.name,
-          persona: settings.persona,
+          name: herName(),
+          persona: herPersona(),
           zh,
           now: new Date(),
           app,
@@ -813,10 +856,29 @@ async function main(): Promise<void> {
     setInterval(async () => {
       const text = await invoke<string | null>("debug_take_input");
       const focusCmd = text?.match(/^\/focus\s+([\d.]+)\s+(.+)$/);
+      // Opens Settings; drafts a persona without saving it; makes her say something to a hidden
+      // note without storing it ("/remark (System note: …)").
+      if (text === "/settings") return void invoke("open_settings");
+      if (text === "/draft-persona") {
+        const d = await draftPersona().catch((e) => String(e));
+        console.info(`[pet] persona draft: ${JSON.stringify(d)}`);
+        return;
+      }
+      const remarkCmd = text?.match(/^\/remark\s+(.+)$/s);
+      if (remarkCmd) return void companion.remark(remarkCmd[1], "…");
+      // Imports a persona from a local JSON file {name, persona}: "/persona-import /tmp/logitmate-persona.json"
+      const personaCmd = text?.match(/^\/persona-import\s+(\S+)$/);
+      if (personaCmd) {
+        const b64 = await invoke<string>("debug_read_image", { path: personaCmd[1] });
+        const json = new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+        persona = await savePersona(modelPath, JSON.parse(json) as { name: string; persona: string });
+        console.info(`[pet] persona imported: ${persona.name}, ${persona.persona.length} chars`);
+        return;
+      }
       // The voice description she would get, without designing anything.
       if (text === "/brief") {
         const still = await stage.still(() => model.poseStill(null));
-        const brief = await writeBrief(settings.characterName || profile.name, settings.persona, zh, stillJpeg(still)).catch((e) => String(e));
+        const brief = await writeBrief(herName(), herPersona(), zh, stillJpeg(still)).catch((e) => String(e));
         console.info(`[pet] brief: ${JSON.stringify(brief)}`);
         return;
       }

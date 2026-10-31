@@ -25,7 +25,8 @@ describe("systemPrompt", () => {
     const p = systemPrompt({ ...base, actions: ["point"], facts: ["喜欢猫"], persona: "  Tsundere.  " });
     expect(p).toContain("[act:Y], Y one of: point.");
     expect(p).toContain("- 喜欢猫");
-    expect(p).toMatch(/Your persona:\nTsundere\.$/);
+    expect(p).toContain("Your character (follow it closely; where it differs from the general style below, it wins):\nTsundere.\n");
+    expect(p.indexOf("Tsundere")).toBeLessThan(p.indexOf("Control tags"));
   });
 
   it("tells her what her emotions look like on this model", () => {

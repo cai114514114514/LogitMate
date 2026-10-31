@@ -1,0 +1,133 @@
+:root {
+  color-scheme: light dark;
+  --ink: #1d2233;
+  --muted: #687089;
+  --paper: #ffffff;
+  --page: #f4f5f8;
+  --edge: rgba(40, 70, 140, 0.18);
+  --accent: #3b6fe0;
+  --ok: #2f8f5b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e7e9f0;
+    --muted: #9aa1b8;
+    --paper: #1e2130;
+    --page: #15171f;
+    --edge: rgba(160, 180, 230, 0.2);
+    --accent: #6f97ff;
+    --ok: #5cc48a;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 13px/1.5 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+}
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+section {
+  background: var(--paper);
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.hint,
+.status {
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+
+.status:empty {
+  display: none;
+}
+
+label {
+  display: block;
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+
+input,
+textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: var(--page);
+  color: var(--ink);
+  font: 13px/1.6 -apple-system, "PingFang SC", sans-serif;
+  font-weight: normal;
+}
+
+textarea {
+  resize: vertical;
+}
+
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+button {
+  padding: 6px 14px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.badge {
+  margin-left: 6px;
+  font-weight: normal;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.badge.set {
+  color: var(--ok);
+}

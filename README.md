@@ -6,6 +6,7 @@ She stands on your desktop, follows your cursor with her eyes, sways when you dr
 
 - **Lives in your desktop.** Drop her on a window and she stands on it, rides along when you move it, and tumbles down when you close it. Push her past the screen edge and she peeks in. She steps aside during calls and full-screen apps, and stays out of your screenshots.
 - **Alive on any rig.** Her eyes dart and her head follows, her mouth moves as her words appear, she nods, tilts, hops and looks away, hums, stretches, yawns at night and dozes off when you're gone. Stroke her head with the cursor to pet her; shake it at her and she gets dizzy.
+- **A character of her own.** Each model gets its own persona, drafted from how she looks and editable in Settings; switch models and you switch characters.
 - **Any model, zero setup.** On first launch with a new model she looks at each of its expressions (rendered offscreen) and a vision model works out what they mean — heart eyes, blush, a loading spinner, a prop, an outfit — whatever the files are called.
 - **A voice that fits her.** With a Xiaomi MiMo key she speaks her replies, in a voice a vision model designs from how she looks (you audition and keep one), with her mood in her tone and her mouth following the audio.
 - **Looks at your screen when you ask.** "Can you check this?" — she takes one screenshot, reads it with a vision model and helps; nothing is kept.

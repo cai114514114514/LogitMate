@@ -233,10 +233,43 @@ fn has_api_key() -> bool {
     secrets::deepseek_key().is_some()
 }
 
-/// Saves a DeepSeek key to the macOS Keychain.
+fn service(name: &str) -> Result<&'static secrets::Service, String> {
+    match name {
+        "deepseek" => Ok(&secrets::DEEPSEEK),
+        "mimo" => Ok(&secrets::MIMO),
+        _ => Err(format!("unknown service: {name}")),
+    }
+}
+
+/// Saves an API key ("deepseek" or "mimo") to the macOS Keychain. The key is never sent back.
 #[tauri::command]
-fn set_api_key(key: String) -> Result<(), String> {
-    secrets::store_key(&secrets::DEEPSEEK, &key)
+fn set_api_key(service_name: String, key: String) -> Result<(), String> {
+    secrets::store_key(service(&service_name)?, &key)
+}
+
+/// Which API keys are available (from the environment, .env or the Keychain).
+#[tauri::command]
+fn key_status() -> std::collections::HashMap<&'static str, bool> {
+    [("deepseek", secrets::key(&secrets::DEEPSEEK).is_some()), ("mimo", secrets::key(&secrets::MIMO).is_some())].into()
+}
+
+/// Opens (or brings forward) the Settings window.
+#[tauri::command]
+fn open_settings(app: AppHandle) -> Result<(), String> {
+    settings_window(&app).map_err(|e| e.to_string())
+}
+
+pub fn settings_window(app: &AppHandle) -> tauri::Result<()> {
+    if let Some(w) = app.get_webview_window("settings") {
+        w.show()?;
+        return w.set_focus();
+    }
+    let w = tauri::WebviewWindowBuilder::new(app, "settings", tauri::WebviewUrl::App("settings.html".into()))
+        .title("LogitMate Settings")
+        .inner_size(560.0, 680.0)
+        .min_inner_size(460.0, 520.0)
+        .build()?;
+    w.set_focus()
 }
 
 #[tauri::command]
@@ -386,6 +419,8 @@ pub fn run() {
             tts_remove_voice,
             has_api_key,
             set_api_key,
+            key_status,
+            open_settings,
             memory_append,
             memory_recent,
             memory_add_fact,

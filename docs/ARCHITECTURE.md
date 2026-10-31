@@ -120,6 +120,12 @@ Off by default; ticking *Watch Over Me* explains what happens and asks first (`b
 - In a focus session she only speaks when you look stuck or have drifted off the task.
 - Typing now also keeps her from dozing off, and wakes her.
 
+## Persona and Settings
+- **Per model** (`brain/persona.ts`): a name and a free-text persona are kept per model in the app data folder (`profiles/<hash>.json`, keyed by the model path, separate from the learned profile so relearning keeps it). Switching models switches characters. The system prompt puts the persona right after "You are <name>" and lets it win over the general style. Older single-persona settings still apply when a model has none.
+- **Zero setup**: a model without a persona gets a draft 15 s after launch: the vision model looks at a still of her and her model name and writes looks, personality, how she talks (plainly "you" by default), a few signature lines and tact rules (at most one joke per reply, none when the user is sad or busy, never an official mascot, no default romance). If the character is well known, it stays true to how she is known.
+- **Settings window** (*Settings…*, `settings.html`): edit her name and persona, ask for a fresh draft (the pet window renders the still and answers over events), and save DeepSeek and MiMo keys to the Keychain. Keys never come back to the page; it only shows whether each is set.
+- Personas written for community characters (for example DeepSeek-chan, whose fan design is CC BY-NC-SA) stay on the user's Mac; nothing character-specific is in the repository.
+
 ## Desktop presence (M3)
 She lives in the desktop rather than a fixed box (`behavior/presence.ts`, `windows.rs`).
 - **Standing on windows**: dropped with her feet near a window's top edge (and room above it for her), she lands on it, soles slightly in its title bar. Every 50 ms the window list (`CGWindowListCopyWindowInfo`: frames, owners and layers only, no titles or contents) says where it is; she rides along and sways with its speed like when dragged. Gone for two looks in a row (closed, minimized, another Space), she falls to the bottom of the screen with gravity and lands with a hop and a surprised face. Her feet are found once from a still of the rest pose.
