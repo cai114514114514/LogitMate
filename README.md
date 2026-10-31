@@ -1,0 +1,21 @@
+# LogitMate
+
+任何 Live2D 模型拖进来都能活过来的 AI 桌宠（macOS，Tauri 2）。
+
+- 产品需求：[docs/PRD.md](docs/PRD.md)
+- 架构说明：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+## 运行
+
+1. 在 <https://www.live2d.com/sdk/download/web/> 同意协议，下载 Cubism SDK for Web 5，解压为 `app/vendor/cubism`（不进 git）。
+2. 运行（在 app 目录下）：
+
+```bash
+pnpm install
+pnpm test
+LOGITMATE_MODEL="/path/to/model.model3.json" pnpm tauri dev
+```
+
+不设置 `LOGITMATE_MODEL` 时，首次启动会弹出文件选择框；之后可以在菜单栏图标里切换模型、调整大小、开关置顶。
+
+模型版权归原作者所有。LogitMate 只读取本地文件，不复制、不上传模型。

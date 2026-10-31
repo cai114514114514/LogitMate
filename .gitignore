@@ -1,0 +1,3 @@
+.DS_Store
+# Downloaded Live2D models: keep them out of the repo (their licenses forbid redistribution)
+/DeepSeek-chan*/
