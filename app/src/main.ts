@@ -6,7 +6,9 @@ import { ask, message, open } from "@tauri-apps/plugin-dialog";
 import { AgentFace, type AgentEvent } from "./behavior/agentFace";
 import { Companion } from "./behavior/companion";
 import { addFocusToday, FocusSession, focusLines, type FrontApp } from "./behavior/focus";
+import { GESTURES, SPOKEN_GESTURES, type GestureName } from "./behavior/gestures";
 import { Interaction, type WindowBox } from "./behavior/interaction";
+import { Life } from "./behavior/life";
 import { Mood } from "./behavior/mood";
 import { Reactions } from "./behavior/reactions";
 import { ChatSession } from "./brain/chat";
@@ -172,16 +174,37 @@ async function main(): Promise<void> {
       emotions: [...map.emotions.keys()],
       looks: Object.fromEntries(map.looks),
       focus: focus && { task: focus.task, minutesLeft: Math.ceil(focus.remainingMs(Date.now()) / 60_000) },
-      actions: [...map.actions.keys()],
+      actions: [...new Set([...map.actions.keys(), ...SPOKEN_GESTURES])],
       now: new Date(),
       locale: navigator.language,
     }),
   );
-  const companion = new Companion({ chat, ui, reactions, mood, map });
+  // Procedural life: gaze, talking mouth, idle acts, gestures every model can do.
+  const life = new Life();
+  const syncLife = () => {
+    life.energy = mood.energy();
+    life.mood = mood.state.mood;
+  };
+  syncLife();
+  const companion = new Companion({
+    chat,
+    ui,
+    reactions,
+    mood,
+    map,
+    procedural: (action) => {
+      if (!(action in GESTURES)) return false;
+      life.play(action as GestureName);
+      return true;
+    },
+  });
+  ui.onSpeak = (text, quiet) => life.speak(text, quiet);
 
   // Agent Face: coding agents report through the Rust bridge; she reacts without intruding.
+  let agentThinking = false;
   const agentFace = new AgentFace((r) => {
     if (r.type === "thinking") {
+      agentThinking = r.on;
       const thinking = map.emotions.get("thinking");
       if (!thinking || chat.busy) return;
       if (r.on) reactions.express(thinking, 0);
@@ -288,18 +311,42 @@ async function main(): Promise<void> {
   }, 1000);
 
   ui.onWantFocus = () => win.setFocus();
-  ui.onSubmit = (text) => void companion.talk(text);
-  canvas.addEventListener("dblclick", () => void ui.openInput());
+  ui.onSubmit = (text) => {
+    life.noteInteraction();
+    void companion.talk(text);
+  };
+  canvas.addEventListener("dblclick", () => {
+    life.noteInteraction();
+    void ui.openInput();
+  });
+  const pick = <T>(list: T[]) => list[Math.floor(Math.random() * list.length)];
+  life.onEvent = (e) => {
+    if (e === "petted") {
+      mood.onPat();
+      companion.noteInteraction();
+      flash(mood.state.affection > 20 ? "love" : "happy", 2500);
+    } else if (e === "dizzy") {
+      flash("confused", 2500);
+    } else if (e === "woke") {
+      flash("surprised", 1200);
+    }
+  };
 
   const interaction = new Interaction(stage, box, {
     onTap: (fy) => {
       companion.noteInteraction();
+      life.noteInteraction();
       if (fy < 0.32) {
         mood.onPat();
         reactions.pat();
-      } else {
+        life.play(pick<GestureName>(["wiggle", "tilt", "nod"]));
+      } else if (map.actions.size && Math.random() < 0.5) {
         mood.touch();
         reactions.gesture();
+      } else {
+        mood.touch();
+        life.play(pick<GestureName>(["hop", "bounce"]));
+        flash("surprised", 1500);
       }
     },
     moveTo: (x, y) => {
@@ -311,7 +358,15 @@ async function main(): Promise<void> {
   });
   await interaction.attach();
   stage.hooks = {
-    beforeUpdate: (dt) => interaction.beforeUpdate(dt),
+    beforeUpdate: (dt) => {
+      interaction.beforeUpdate(dt);
+      life.working = !!focus;
+      life.thinking = (chat.busy && !life.talking) || agentThinking;
+      const f = life.update(dt, interaction.pointer);
+      model.lookAt(f.look.x, f.look.y);
+      model.procedural = { offsets: f.offsets, eyeOpen: f.eyeOpen, gaze: f.gaze };
+      if (life.talking) stage.maxFps = 60;
+    },
     afterDraw: () => interaction.afterDraw(),
   };
 
@@ -367,7 +422,10 @@ async function main(): Promise<void> {
       `textures ${(model.textureMemoryBytes / 2 ** 20).toFixed(0)} MB`,
   );
 
-  setInterval(() => companion.tick(30), 30_000);
+  setInterval(() => {
+    companion.tick(30);
+    syncLife();
+  }, 30_000);
   if (import.meta.env.DEV) {
     // Lets scripts drive a chat turn: echo "hi" > /tmp/logitmate-say.txt
     // or a focus session: echo "/focus 0.5 write tests" > /tmp/logitmate-say.txt

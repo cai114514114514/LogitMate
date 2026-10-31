@@ -15,6 +15,8 @@ export class ChatUI {
 
   /** Called with what the user typed. */
   onSubmit: (text: string) => void = () => {};
+  /** Called with text as it appears in the bubble (only the new part), so her mouth can move. */
+  onSpeak: (text: string, quiet: boolean) => void = () => {};
   /** Called when the input wants keyboard focus (the window must become key first). */
   onWantFocus: () => Promise<void> = async () => {};
 
@@ -62,8 +64,11 @@ export class ChatUI {
    * Shows (or updates) the bubble; `streaming` keeps it open until `done()` is called.
    * `onClick` makes the bubble clickable until it hides or another line replaces it.
    */
-  say(text: string, streaming = false, onClick?: () => void): void {
+  say(text: string, streaming = false, onClick?: () => void, quiet = false): void {
     clearTimeout(this.hideTimer);
+    const before = this.bubble.hidden ? "" : (this.text.textContent ?? "");
+    const fresh = text.startsWith(before) && before !== "…" ? text.slice(before.length) : text;
+    if (fresh) this.onSpeak(fresh, quiet);
     if (onClick !== undefined || !streaming) this.bubbleAction = onClick ?? null;
     this.bubble.classList.toggle("actionable", !!this.bubbleAction);
     this.bubble.classList.toggle("thinking", text === "");
@@ -76,7 +81,7 @@ export class ChatUI {
 
   /** Self-talk: shown quieter, not addressed to the user. */
   murmur(text: string): void {
-    this.say(text);
+    this.say(text, false, undefined, true);
     this.bubble.classList.add("murmur");
   }
 

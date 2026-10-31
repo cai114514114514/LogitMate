@@ -1,8 +1,10 @@
-// Pointer handling for a click-through pet window: gaze, per-pixel hit testing, drag and tap.
+// Pointer handling for a click-through pet window: per-pixel hit testing, drag and tap, and the
+// cursor as seen from her face (behavior/life.ts decides where she actually looks).
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Stage } from "../renderer/stage";
+import type { PointerState } from "./life";
 
 /** Pixels with less alpha than this let clicks fall through. */
 const HIT_ALPHA = 16;
@@ -44,6 +46,8 @@ export class Interaction {
   private cursorDirty = true;
   private framesSinceHitTest = 0;
   private hit = false;
+  /** The cursor as she sees it, updated every frame. */
+  pointer: PointerState = { x: 0, y: 0, fx: -1, fy: -1, stillMs: 1e9, near: false, over: false };
 
   constructor(
     private stage: Stage,
@@ -86,7 +90,7 @@ export class Interaction {
     canvas.addEventListener("pointercancel", end);
   }
 
-  /** Frame hook: window movement, drag sway, gaze. */
+  /** Frame hook: window movement, drag sway, the cursor relative to her. */
   beforeUpdate(dt: number): void {
     const model = this.stage.model;
     if (!model) return;
@@ -117,7 +121,15 @@ export class Interaction {
     this.stage.maxFps = active ? ACTIVE_FPS : IDLE_FPS;
 
     const reach = h * 0.5;
-    model.lookAt(Math.tanh((x - w / 2) / reach), Math.tanh((h * FACE_Y - y) / reach));
+    this.pointer = {
+      x: Math.tanh((x - w / 2) / reach),
+      y: Math.tanh((h * FACE_Y - y) / reach),
+      fx: x / w,
+      fy: y / h,
+      stillMs: this.press ? 0 : now - this.lastCursorChange,
+      near,
+      over: this.hit && !this.press,
+    };
   }
 
   /** Frame hook: decide click-through from what is under the cursor (model pixel or UI). */

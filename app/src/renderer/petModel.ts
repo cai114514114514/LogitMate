@@ -21,6 +21,7 @@ import { InvalidMotionQueueEntryHandleValue } from "@framework/motion/cubismmoti
 import { CubismPhysicsUpdater } from "@framework/motion/cubismphysicsupdater";
 import { CubismPoseUpdater } from "@framework/motion/cubismposeupdater";
 import { CubismUpdateScheduler } from "@framework/motion/cubismupdatescheduler";
+import { physicsRoutes, type Route } from "../model/physicsRoutes";
 import type { Exp3Parameter } from "../model/semantics";
 import type { NormalizedModel } from "../model/types";
 import { Priority } from "./priority";
@@ -31,6 +32,15 @@ export { Priority };
 export const SHADER_PATH = "/cubism/shaders/";
 
 const NEUTRAL_EXPRESSION = "__neutral";
+
+/** What the procedural layer (behavior/life.ts) wants this frame. */
+export interface ProceduralPose {
+  offsets: Record<string, number>;
+  /** Eye openness multiplier after blinking, 0..1. */
+  eyeOpen: number;
+  /** Where the eyes point (-1..1); they lead the head, which follows through CubismLook. */
+  gaze: { x: number; y: number } | null;
+}
 
 export interface LoadOptions {
   /** Converts a path relative to the model folder into a URL the webview can fetch. */
@@ -64,12 +74,12 @@ export class PetModel extends CubismUserModel {
   private motions = new Map<string, CubismMotion>();
   private expressions = new Map<string, ACubismMotion>();
   private expressionParams = new Map<string, Exp3Parameter[]>();
-  private idAngleZ: CubismIdHandle;
-  private idBodyAngleX: CubismIdHandle;
-  private idBodyAngleZ: CubismIdHandle;
+  private routes = new Map<string, Route>();
+  private idCache = new Map<string, CubismIdHandle>();
 
   /** Horizontal sway from being dragged around, -1..1. Physics turns it into hair/skirt motion. */
   sway = 0;
+  procedural: ProceduralPose = { offsets: {}, eyeOpen: 1, gaze: null };
   textureMemoryBytes = 0;
 
   private constructor(normalized: NormalizedModel) {
@@ -77,10 +87,25 @@ export class PetModel extends CubismUserModel {
     this.normalized = normalized;
     const buf = jsonBuffer(normalized.model3);
     this.setting = new CubismModelSettingJson(buf, buf.byteLength);
-    const ids = CubismFramework.getIdManager();
-    this.idAngleZ = ids.getId(P.ParamAngleZ);
-    this.idBodyAngleX = ids.getId(P.ParamBodyAngleX);
-    this.idBodyAngleZ = ids.getId(P.ParamBodyAngleZ);
+  }
+
+  private id(name: string): CubismIdHandle {
+    let h = this.idCache.get(name);
+    if (!h) {
+      h = CubismFramework.getIdManager().getId(name);
+      this.idCache.set(name, h);
+    }
+    return h;
+  }
+
+  /** The parameter to write for `name`: itself, or the physics input that drives it. */
+  private route(name: string): Route {
+    return this.routes.get(name) ?? { id: name, scale: 1 };
+  }
+
+  private addRouted(name: string, value: number): void {
+    const r = this.route(name);
+    this._model.addParameterValueById(this.id(r.id), value * r.scale);
   }
 
   static async load(gl: WebGL2RenderingContext, normalized: NormalizedModel, opts: LoadOptions): Promise<PetModel> {
@@ -91,7 +116,6 @@ export class PetModel extends CubismUserModel {
 
   private async setup(gl: WebGL2RenderingContext, opts: LoadOptions): Promise<void> {
     const s = this.setting;
-    const ids = CubismFramework.getIdManager();
 
     const progress = opts.onProgress ?? (() => {});
     const mocBuffer = await fetchBuffer(opts.url(s.getModelFileName()));
@@ -122,6 +146,13 @@ export class PetModel extends CubismUserModel {
 
     if (s.getPhysicsFileName()) {
       const buf = await fetchBuffer(opts.url(s.getPhysicsFileName()));
+      try {
+        this.routes = physicsRoutes(JSON.parse(decoder.decode(buf)));
+      } catch {
+        this.routes.clear();
+      }
+      const head = [P.ParamAngleX, P.ParamBodyAngleX].filter((id) => this.routes.has(id));
+      progress(`physics routes: ${this.routes.size}${head.length ? ` (${head.map((id) => `${id}→${this.routes.get(id)!.id}`).join(", ")})` : ""}`);
       this.loadPhysics(buf, buf.byteLength);
       if (this._physics) this.scheduler.addUpdatableList(new CubismPhysicsUpdater(this._physics));
     }
@@ -138,24 +169,32 @@ export class PetModel extends CubismUserModel {
     for (let i = 0; i < s.getEyeBlinkParameterCount(); i++) this.eyeBlinkIds.push(s.getEyeBlinkParameterId(i));
     for (let i = 0; i < s.getLipSyncParameterCount(); i++) this.lipSyncIds.push(s.getLipSyncParameterId(i));
 
+    // Breath and gaze write through physics routes, so physics-smoothed rigs move too.
+    const routed = (name: string) => ({ id: this.id(this.route(name).id), scale: this.route(name).scale });
+    const breath = (name: string, offset: number, peak: number, cycle: number, weight: number) =>
+      new BreathParameterData(routed(name).id, offset, peak, cycle, weight);
     this._breath = CubismBreath.create();
     this._breath.setParameters([
-      new BreathParameterData(ids.getId(P.ParamAngleX), 0.0, 15.0, 6.5345, 0.5),
-      new BreathParameterData(ids.getId(P.ParamAngleY), 0.0, 8.0, 3.5345, 0.5),
-      new BreathParameterData(this.idAngleZ, 0.0, 10.0, 5.5345, 0.5),
-      new BreathParameterData(this.idBodyAngleX, 0.0, 4.0, 15.5345, 0.5),
-      new BreathParameterData(ids.getId(P.ParamBreath), 0.5, 0.5, 3.2345, 1),
+      breath(P.ParamAngleX, 0.0, 15.0, 6.5345, 0.5),
+      breath(P.ParamAngleY, 0.0, 8.0, 3.5345, 0.5),
+      breath(P.ParamAngleZ, 0.0, 10.0, 5.5345, 0.5),
+      breath(P.ParamBodyAngleX, 0.0, 4.0, 15.5345, 0.5),
+      breath(P.ParamBreath, 0.5, 0.5, 3.2345, 1),
     ]);
     this.scheduler.addUpdatableList(new CubismBreathUpdater(this._breath));
 
+    const look = (name: string, x: number, y: number, xy: number) => {
+      const r = routed(name);
+      return new LookParameterData(r.id, x * r.scale, y * r.scale, xy * r.scale);
+    };
     this.look = CubismLook.create();
     this.look.setParameters([
-      new LookParameterData(ids.getId(P.ParamAngleX), 30.0, 0.0, 0.0),
-      new LookParameterData(ids.getId(P.ParamAngleY), 0.0, 30.0, 0.0),
-      new LookParameterData(this.idAngleZ, 0.0, 0.0, -30.0),
-      new LookParameterData(this.idBodyAngleX, 10.0, 0.0, 0.0),
-      new LookParameterData(ids.getId(P.ParamEyeBallX), 1.0, 0.0, 0.0),
-      new LookParameterData(ids.getId(P.ParamEyeBallY), 0.0, 1.0, 0.0),
+      look(P.ParamAngleX, 30.0, 0.0, 0.0),
+      look(P.ParamAngleY, 0.0, 30.0, 0.0),
+      look(P.ParamAngleZ, 0.0, 0.0, -30.0),
+      look(P.ParamBodyAngleX, 10.0, 0.0, 0.0),
+      look(P.ParamEyeBallX, 1.0, 0.0, 0.0),
+      look(P.ParamEyeBallY, 0.0, 1.0, 0.0),
     ]);
     this.scheduler.addUpdatableList(new CubismLookUpdater(this.look, this._dragManager));
     this.scheduler.sortUpdatableList();
@@ -315,12 +354,23 @@ export class PetModel extends CubismUserModel {
 
     // Not saved: these add on top of the motion each frame and feed into physics below.
     if (this.sway !== 0) {
-      model.addParameterValueById(this.idAngleZ, this.sway * 12);
-      model.addParameterValueById(this.idBodyAngleZ, this.sway * 8);
-      model.addParameterValueById(this.idBodyAngleX, this.sway * 6);
+      this.addRouted(P.ParamAngleZ, this.sway * 12);
+      this.addRouted(P.ParamBodyAngleZ, this.sway * 8);
+      this.addRouted(P.ParamBodyAngleX, this.sway * 6);
+    }
+    const pose = this.procedural;
+    for (const name in pose.offsets) this.addRouted(name, pose.offsets[name]);
+    if (pose.gaze) {
+      // Eyes jump ahead of the head, which catches up through the smoothed look target.
+      const lead = (v: number) => Math.max(-1, Math.min(1, v));
+      this.addRouted(P.ParamEyeBallX, lead(pose.gaze.x - this._dragManager.getX()));
+      this.addRouted(P.ParamEyeBallY, lead(pose.gaze.y - this._dragManager.getY()));
     }
 
     this.scheduler.onLateUpdate(model, dt);
+    if (pose.eyeOpen < 1) {
+      for (const id of this.eyeBlinkIds) model.multiplyParameterValueById(id, pose.eyeOpen);
+    }
     model.update();
   }
 

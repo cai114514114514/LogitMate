@@ -18,6 +18,8 @@ export interface CompanionDeps {
   reactions: Reactions;
   mood: Mood;
   map: ExpressionMap;
+  /** Plays a procedural gesture (nod, tilt, ...) by name; false when there is none. */
+  procedural?: (action: string) => boolean;
 }
 
 export class Companion {
@@ -58,10 +60,7 @@ export class Companion {
             const name = map.emotions.get(emotion);
             if (name) reactions.express(name, 0);
           },
-          onAction: (action) => {
-            const gesture = map.actions.get(action);
-            if (gesture) reactions.gesture(gesture);
-          },
+          onAction: (action) => this.act(action),
         },
         { hidden: true, store: false },
       );
@@ -71,6 +70,13 @@ export class Companion {
       ui.say(fallback, false, onClick);
     }
     reactions.relax(LINGER_MS);
+  }
+
+  /** A gesture the LLM asked for: the model's own motion if it has one, else a procedural one. */
+  private act(action: string): void {
+    const gesture = this.d.map.actions.get(action);
+    if (gesture) this.d.reactions.gesture(gesture);
+    else this.d.procedural?.(action);
   }
 
   noteInteraction(): void {
@@ -104,10 +110,7 @@ export class Companion {
             if (name) reactions.express(name, 0);
             else reactions.relax();
           },
-          onAction: (action) => {
-            const gesture = map.actions.get(action);
-            if (gesture) reactions.gesture(gesture);
-          },
+          onAction: (action) => this.act(action),
           onRemember: (fact) => console.info(`[pet] remembered: ${fact}`),
         },
         { hidden },

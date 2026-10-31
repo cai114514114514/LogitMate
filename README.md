@@ -4,6 +4,7 @@ An AI desktop companion that brings any Live2D model to life (macOS · Tauri 2).
 
 She stands on your desktop, follows your cursor with her eyes, sways when you drag her, reacts to head pats, and chats with you in a speech bubble — switching her own expressions as she talks and remembering what you tell her.
 
+- **Alive on any rig.** Her eyes dart and her head follows, her mouth moves as her words appear, she nods, tilts, hops and looks away, hums, stretches, yawns at night and dozes off when you're gone. Stroke her head with the cursor to pet her; shake it at her and she gets dizzy.
 - **Any model, zero setup.** On first launch with a new model she looks at each of its expressions (rendered offscreen) and a vision model works out what they mean — heart eyes, blush, a loading spinner, a prop, an outfit — whatever the files are called.
 - **A focus partner.** Tell her what you're working on and she works next to you: the task and time stay above her head, she notices (from the app name only, kept on your Mac) when you drift and quietly waits for you, and celebrates when you finish.
 - **The face of your coding agents.** Connected to Claude Code or Codex (opt-in, from the menu), she thinks along while they work, tells you when they need you, and cheers when long tasks finish.

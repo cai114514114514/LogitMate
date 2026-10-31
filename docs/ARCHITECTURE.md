@@ -10,6 +10,9 @@ Tauri 2 (Rust, app/src-tauri)                     WebView (TypeScript, app/src)
 ├─ llm.rs         streaming OpenAI-compatible chat ├─ renderer/textures.ts  downscaled texture loading
 ├─ memory.rs      SQLite: messages + user facts    ├─ behavior/interaction.ts gaze, click-through, drag, tap
 ├─ secrets.rs     API key: env → .env → Keychain   ├─ behavior/reactions.ts   expressions/gestures by label
+│                                                  ├─ behavior/life.ts        gaze, talking mouth, idle life, cursor gestures
+│                                                  ├─ behavior/gestures.ts    procedural gestures every model can do
+│                                                  ├─ model/physicsRoutes.ts  write the physics input behind an output
 ├─ profiles.rs    learned model profiles (cache)   ├─ behavior/mood.ts        emotion engine v1
 ├─ agents.rs      Agent Face bridge (127.0.0.1)    ├─ behavior/companion.ts   chat turn ↔ body, greeting, fidgets
 ├─ agent_hooks.rs connect Claude Code / Codex      ├─ behavior/agentFace.ts   reactions to coding agents
@@ -57,6 +60,15 @@ Tauri 2 (Rust, app/src-tauri)                     WebView (TypeScript, app/src)
 - **Reactions** (`AgentFace`): working → the thinking face until 4 s of quiet; waiting for you → an aside in her voice whose bubble opens the agent's terminal (known terminals only, by bundle id); turns over 45 s → an upbeat "done" line; 3 failures in a row → encouragement (once per 10 min). Asides are not stored in the conversation and wait while you are talking to her.
 - **Other agents** (e.g. Logit-Harness): pipe Claude-Code-shaped hook JSON (`hook_event_name`, `session_id`, `cwd`, `tool_name`, `message`) into `logitmate-hook <agent-name>`.
 
+## Life layer
+Most models ship few motions (DeepSeek-chan has 8, mostly hand switches), so liveliness is procedural and works on any rig.
+- **Physics routes** (`model/physicsRoutes.ts`): rigs made for VTube Studio compute ParamAngleX, ParamBodyAngleX, arms and hair in physics from input parameters (AngleX, PositionX, LeanInput…). Writing the output is overwritten in the same frame, so gaze, breathing and drag sway were invisible on such rigs. Each output driven by one dominant angle input is routed to that input (inverted when physics reflects it); gaze, breath, sway and the life layer all write through the routes, and arms and hair follow as under face tracking.
+- **Gaze** (`Gaze`): the eyes jump in saccades and the head follows part of the way (eyes lead through an EyeBall offset against CubismLook's smoothed target). Modes: the cursor when it is near or on her; idle, alternating looks at the user with glances away; look-around bursts; a glance away when she starts talking, then mostly at the user; looking up while thinking (waiting for a reply, an agent at work); reading-like steps downward during a focus session with a glance at you every 20–40 s; head down while dozing.
+- **Talking mouth** (`Talker`): text appearing in the bubble becomes syllables (one per CJK character, about one per three Latin letters) at 6.5 per second, speeding up so she never lags far behind a stream; each opens ParamMouthOpenY and one vowel shape, with a small head bob, pauses at punctuation and a nod at most sentence ends. No audio; TTS will drive the same parameters later.
+- **Gestures** (`gestures.ts`): keyframed curves over standard parameters — nod, shake, tilt, bounce, hop, lean, wiggle, look away, dizzy, sigh, yawn, stretch, jolt. The LLM can use the first seven with `[act:…]` on every model; taps and idle life use the rest.
+- **Idle life**: small never-repeating head and body drift scaled by energy; every 14–40 s an idle act chosen by mood and energy (look around, tilt, wiggle, hum, stretch, yawn when tired, sigh when low); after 8 minutes with nobody around (3 when tired, never in a focus session) she dozes off, head drooping with an occasional jolt, and wakes when the cursor moves — startled if it is close.
+- **Cursor gestures** (`PointerSense`): stroking back and forth over her head is a pat (eyes close, head leans into it, mood and affection go up); shaking the cursor at her makes her dizzy; the cursor on her brings a smile.
+
 ## Zero-setup expressions (M2.5)
 Expression names range from 爱心眼 to `exp_03`, so names alone can't say what a model can show. On the first launch with a new model, LogitMate looks at every expression instead:
 1. **Stills** (`Stage.still`, `PetModel.poseStill`): between two live frames the model is posed with all parameters at default plus one expression at full weight (no motion, physics, breath or gaze), drawn, and read back. The live frame drawn right after replaces it before anything reaches the screen; one still per frame.
@@ -91,7 +103,7 @@ Body doubling on the desktop: *Focus With Me…* asks for the task and a length 
 cd app
 pnpm install
 pnpm sync:cubism              # after placing the SDK in app/vendor/cubism
-pnpm test                     # adapter, tags, expressions, prompt, mood, gestures, semantics, stills, focus
+pnpm test                     # adapter, tags, expressions, prompt, mood, gestures, semantics, stills, focus, life, physics routes
 (cd src-tauri && cargo test)  # settings, folder listing, cursor math, SSE, .env, memory, profiles
 LOGITMATE_MODEL=/path/to/x.model3.json pnpm tauri dev
 echo "hello" > /tmp/logitmate-say.txt   # dev builds: send a chat message from a script
