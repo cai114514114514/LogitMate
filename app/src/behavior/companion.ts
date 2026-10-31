@@ -26,10 +26,10 @@ export class Companion {
 
   constructor(private d: CompanionDeps) {}
 
-  /** Something the user typed. */
-  async talk(text: string): Promise<void> {
+  /** Something the user typed, optionally with a screenshot they asked her to look at. */
+  async talk(text: string, image?: string): Promise<void> {
     this.d.mood.onChat();
-    await this.turn(text, false);
+    await this.turn(text, false, image);
   }
 
   /** Says hello when the user comes back, or introduces herself the first time. */
@@ -80,7 +80,7 @@ export class Companion {
     this.d.mood.tick(seconds);
   }
 
-  private async turn(text: string, hidden: boolean): Promise<void> {
+  private async turn(text: string, hidden: boolean, image?: string): Promise<void> {
     const { chat, ui, reactions, mood, map } = this.d;
     ui.say("", true);
     const thinking = map.emotions.get("thinking");
@@ -100,7 +100,7 @@ export class Companion {
           onAction: (action) => this.act(action),
           onRemember: (fact) => console.info(`[pet] remembered: ${fact}`),
         },
-        { hidden },
+        { hidden, image },
       );
       if (!reply) ui.say("…");
       ui.done();

@@ -16,7 +16,8 @@ Tauri 2 (Rust, app/src-tauri)                     WebView (TypeScript, app/src)
 ├─ profiles.rs    learned model profiles (cache)   ├─ behavior/mood.ts        emotion engine v1
 ├─ agents.rs      Agent Face bridge (127.0.0.1)    ├─ behavior/companion.ts   chat turn ↔ body, greeting, fidgets
 ├─ agent_hooks.rs connect Claude Code / Codex      ├─ behavior/agentFace.ts   reactions to coding agents
-└─ front_app.rs   frontmost app name (Focus)       ├─ behavior/focus.ts       Focus Partner session rules
+├─ front_app.rs   frontmost app name (Focus)       ├─ behavior/focus.ts       Focus Partner session rules
+└─ screen.rs      screenshot on request            ├─ brain/look.ts           "look at my screen" requests
                                                    ├─ model/semantics.ts      expression meanings: prompt, parsing
                                                    ├─ renderer/stills.ts      stills: face box, change box, close-ups
                                                    ├─ brain/labeler.ts        stills → vision model → learned profile
@@ -89,6 +90,12 @@ Body doubling on the desktop: *Focus With Me…* asks for the task and a length 
 - **While focused**: no idle fidgets, and the system prompt asks her to keep replies short and steer back to the task. Agent Face still reports.
 - **Research**: an AI body double raised efficiency as much as a human one and was valued for not judging (Ara et al., arXiv 2509.12153); developers with ADHD asked for private, non-intrusive check-ins and no surveillance (Pimenova et al., arXiv 2609.21254); after a diversion people took 11–16 minutes to resume, sooner when the suspended task stayed visible (Iqbal & Horvitz, CHI 2007).
 - Dev builds: `echo "/focus 0.5 write tests" > /tmp/logitmate-say.txt` starts a 30-second session.
+
+## Look at my screen
+She sees the screen only when asked: *Look at My Screen* in the menu, or a chat message such as "看看我的屏幕" / "can you check this?" (`brain/look.ts`).
+- `screen_capture` (Rust) checks Screen Recording access (`CGPreflightScreenCaptureAccess`; without it, asks macOS and tells the user what to enable), captures the display she is on with `screencapture -R`, scales it to 1800 px with `sips`, deletes the temporary file at once and returns a JPEG. Nothing is kept.
+- The message goes to the vision model with the image attached; memory stores only the text plus "[shared a screenshot]". She turns toward the middle of the screen while she looks.
+- Legibility: DeepSeek's vision model read 12 px text in a 1600×1000 test image verbatim (about 1000 prompt tokens), so the full display at 1800 px works without tiling.
 
 ## Emotion engine v1
 `Mood` keeps mood (−1..1, half-life 10 min toward 0.2), energy (from the local hour) and affection (pats +1, chats +0.5), persisted in localStorage. It feeds the prompt, greetings (first meeting, or back after 6 h) and idle fidgets (after 4 quiet minutes, more often when energetic).

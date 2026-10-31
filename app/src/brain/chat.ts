@@ -41,18 +41,31 @@ export class ChatSession {
   /**
    * Sends `text` and streams the reply. With `hidden`, the text steers this one reply (e.g. "greet
    * the user") without being stored as something the user said; with `store: false` the reply is
-   * not kept either (asides about agents should not crowd the conversation). Resolves with the
-   * visible reply.
+   * not kept either (asides about agents should not crowd the conversation). With `image` (a JPEG
+   * data URL, e.g. a screenshot) the message carries it to the vision model; only a note that an
+   * image was shared is stored. Resolves with the visible reply.
    */
-  async send(text: string, handlers: TurnHandlers, opts: { hidden?: boolean; store?: boolean } = {}): Promise<string> {
+  async send(
+    text: string,
+    handlers: TurnHandlers,
+    opts: { hidden?: boolean; store?: boolean; image?: string } = {},
+  ): Promise<string> {
     if (this.active) await invoke("chat_cancel");
     const id = this.nextId++;
     this.active = id;
 
-    if (!opts.hidden) await invoke("memory_append", { role: "user", content: text });
+    const stored = opts.image ? `${text} [shared a screenshot]` : text;
+    if (!opts.hidden) await invoke("memory_append", { role: "user", content: stored });
     const history = await invoke<StoredMessage[]>("memory_recent", { limit: HISTORY });
-    const messages = [{ role: "system", content: await this.buildSystemPrompt() }, ...history];
-    if (opts.hidden) messages.push({ role: "user", content: text });
+    const messages: { role: string; content: unknown }[] = [{ role: "system", content: await this.buildSystemPrompt() }, ...history];
+    const content = opts.image
+      ? [
+          { type: "text", text },
+          { type: "image_url", image_url: { url: opts.image } },
+        ]
+      : text;
+    if (opts.hidden) messages.push({ role: "user", content });
+    else if (opts.image) messages[messages.length - 1] = { role: "user", content };
 
     const parser = new TagParser();
     let raw = "";
@@ -78,7 +91,7 @@ export class ChatSession {
       take(parser.feed(payload.text));
     });
     try {
-      await invoke("chat_stream", { id, messages });
+      await invoke("chat_stream", { id, messages, vision: !!opts.image });
       take(parser.flush());
       // Stored with tags, so later turns see how she has been expressing herself.
       if (raw.trim() && this.active === id && opts.store !== false) {

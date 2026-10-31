@@ -14,6 +14,7 @@ import { Reactions } from "./behavior/reactions";
 import { ChatSession } from "./brain/chat";
 import { buildExpressionMap, type ExpressionMap } from "./brain/expressions";
 import { learnExpressions, loadLearned, stillJpeg } from "./brain/labeler";
+import { isLookRequest } from "./brain/look";
 import { systemPrompt } from "./brain/prompt";
 import { readModelSource } from "./model/loader";
 import { profileKey, type LearnedProfile } from "./model/semantics";
@@ -311,9 +312,42 @@ async function main(): Promise<void> {
   }, 1000);
 
   ui.onWantFocus = () => win.setFocus();
+  // "Look at my screen" (brain/look.ts): only when asked.
+  const screenRect = async () => {
+    const mon = await currentMonitor();
+    if (!mon) return null;
+    const s = mon.scaleFactor;
+    return { x: mon.position.x / s, y: mon.position.y / s, width: mon.size.width / s, height: mon.size.height / s };
+  };
+  const lookAtScreen = async (question: string) => {
+    life.noteInteraction();
+    const screen = await screenRect();
+    if (!screen) return void companion.talk(question);
+    // She turns toward the middle of the screen while she looks.
+    const face = { x: box.x + box.width / 2, y: box.y + TALK_HEIGHT + 80 };
+    life.glance(
+      Math.tanh((screen.x + screen.width / 2 - face.x) / 400),
+      Math.tanh((face.y - (screen.y + screen.height / 2)) / 400),
+      3,
+    );
+    ui.say(zh ? "（我看一眼…）" : "(Let me take a look…)", true);
+    try {
+      const jpeg = await invoke<string>("screen_capture", screen);
+      await companion.talk(question, `data:image/jpeg;base64,${jpeg}`);
+    } catch (e) {
+      ui.say(
+        String(e).includes("NO_SCREEN_ACCESS")
+          ? zh
+            ? "我还没有看屏幕的权限～请在 系统设置 → 隐私与安全性 → 屏幕录制 里打开 LogitMate，然后重启我。"
+            : "I can't see your screen yet~ Turn on LogitMate in System Settings → Privacy & Security → Screen Recording, then restart me."
+          : `${zh ? "没看清…" : "I couldn't see it…"} ${String(e).slice(0, 80)}`,
+      );
+    }
+  };
   ui.onSubmit = (text) => {
     life.noteInteraction();
-    void companion.talk(text);
+    if (isLookRequest(text)) void lookAtScreen(text);
+    else void companion.talk(text);
   };
   canvas.addEventListener("dblclick", () => {
     life.noteInteraction();
@@ -384,6 +418,8 @@ async function main(): Promise<void> {
       save({ height: SIZES[id], x: box.x, y: box.y });
     } else if (id === "chat") {
       await ui.openInput();
+    } else if (id === "look") {
+      await lookAtScreen(zh ? "看看我的屏幕" : "Take a look at my screen.");
     } else if (id === "focus") {
       if (focus) endFocus(false);
       else await focusUi.open(lastFocus.task);
@@ -434,6 +470,14 @@ async function main(): Promise<void> {
     setInterval(async () => {
       const text = await invoke<string | null>("debug_take_input");
       const focusCmd = text?.match(/^\/focus\s+([\d.]+)\s+(.+)$/);
+      // Checks the screenshot path without sending anything: saves /tmp/logitmate-shot.jpg.
+      if (text === "/shot") {
+        const rect = await screenRect();
+        const jpeg = await invoke<string>("screen_capture", rect ?? {}).catch((e) => String(e));
+        if (jpeg.length > 100) await invoke("debug_save_image", { name: "shot", base64: jpeg });
+        console.info(`[pet] shot: ${jpeg.length > 100 ? `${Math.round((jpeg.length * 3) / 4 / 1024)} KB` : jpeg}`);
+        return;
+      }
       const playCmd = text?.match(/^\/play\s+(\w+)$/);
       if (playCmd && playCmd[1] in GESTURES) life.play(playCmd[1] as GestureName);
       else if (playCmd?.[1] === "hands") reactions.gesture(undefined, 4000);

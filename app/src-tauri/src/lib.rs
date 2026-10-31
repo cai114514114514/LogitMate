@@ -6,6 +6,7 @@ mod llm;
 mod memory;
 mod model_files;
 mod profiles;
+mod screen;
 mod secrets;
 mod settings;
 mod tray;
@@ -55,10 +56,15 @@ async fn chat_stream(
     store: State<'_, SettingsStore>,
     id: u32,
     messages: Vec<ChatMessage>,
+    vision: Option<bool>,
 ) -> Result<(), String> {
     let s = store.get();
     let base = s.llm_base_url.unwrap_or_else(|| llm::DEFAULT_BASE_URL.into());
-    let model = s.llm_model.unwrap_or_else(|| llm::DEFAULT_MODEL.into());
+    let model = if vision == Some(true) {
+        llm::vision_model(&base, s.llm_vision_model, s.llm_model)
+    } else {
+        s.llm_model.unwrap_or_else(|| llm::DEFAULT_MODEL.into())
+    };
     let key = secrets::deepseek_key();
     if key.is_none() && base.contains("deepseek.com") {
         return Err("NO_API_KEY".into());
@@ -116,6 +122,21 @@ fn profile_remove(app: AppHandle, key: String) -> Result<(), String> {
     profiles::remove(&profiles_dir(&app)?, &key)
 }
 
+/// "Look at my screen": a JPEG (base64) of the given screen rectangle in points, long side ≤ 1800 px.
+/// Without Screen Recording access it asks macOS for it and fails with NO_SCREEN_ACCESS.
+#[tauri::command]
+async fn screen_capture(x: f64, y: f64, width: f64, height: f64) -> Result<String, String> {
+    use base64::Engine;
+    if !screen::has_access() {
+        screen::request_access();
+        return Err("NO_SCREEN_ACCESS".into());
+    }
+    let jpeg = tauri::async_runtime::spawn_blocking(move || screen::capture(x, y, width, height, 1800))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(base64::engine::general_purpose::STANDARD.encode(jpeg))
+}
+
 /// Development only: writes a base64 JPEG to /tmp/logitmate-<name>.jpg so stills can be inspected.
 #[tauri::command]
 fn debug_save_image(name: String, base64: String) -> Result<(), String> {
@@ -125,23 +146,9 @@ fn debug_save_image(name: String, base64: String) -> Result<(), String> {
     if !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
         return Err("bad name".into());
     }
-    let bytes = decode_base64(&base64).ok_or("bad base64")?;
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(base64.trim()).map_err(|e| e.to_string())?;
     std::fs::write(format!("/tmp/logitmate-{name}.jpg"), bytes).map_err(|e| e.to_string())
-}
-
-fn decode_base64(s: &str) -> Option<Vec<u8>> {
-    const ABC: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = Vec::with_capacity(s.len() * 3 / 4);
-    let (mut acc, mut bits) = (0u32, 0);
-    for b in s.bytes().filter(|b| !b.is_ascii_whitespace() && *b != b'=') {
-        acc = (acc << 6) | ABC.iter().position(|&c| c == b)? as u32;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((acc >> bits) as u8);
-        }
-    }
-    Some(out)
 }
 
 #[tauri::command]
@@ -265,6 +272,7 @@ pub fn run() {
             profile_save,
             profile_remove,
             debug_save_image,
+            screen_capture,
             has_api_key,
             set_api_key,
             memory_append,
@@ -300,14 +308,4 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn decodes_base64() {
-        assert_eq!(super::decode_base64("aGVsbG8=").unwrap(), b"hello");
-        assert_eq!(super::decode_base64("/9j/").unwrap(), [0xff, 0xd8, 0xff]);
-        assert!(super::decode_base64("no*pe").is_none());
-    }
 }

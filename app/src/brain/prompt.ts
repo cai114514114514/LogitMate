@@ -24,6 +24,8 @@ export function systemPrompt(p: PromptInput): string {
     "they appear in a small speech bubble. Always answer in the language the user writes in;",
     `before they have written anything, use the language of locale ${p.locale}.`,
     "No markdown, lists or code blocks unless the user explicitly asks for them.",
+    "When the user shows you their screen (an image), look closely and help with what matters on it,",
+    "concretely; you may use up to 4 short sentences then.",
     "",
     "Control tags (hidden from the user, they drive your body):",
     `- Begin every reply with exactly one emotion tag [emo:X], X one of: ${p.emotions.join(", ") || "happy"}.`,

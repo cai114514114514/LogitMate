@@ -344,6 +344,8 @@ export class Life {
   private smile = 0;
   private petLevel = 0;
   private petTilt = 0;
+  private glanceUntil = 0;
+  private glanceAt = { x: 0, y: 0 };
   private shift = 0;
   private shiftTarget = 0;
   private nextShift = 6;
@@ -377,6 +379,12 @@ export class Life {
     if (starting && !quiet && this.handPoses > 0 && this.random() < 0.35) {
       this.onEvent({ type: "hands", ms: Math.max(2500, Math.min(8000, this.talker.remaining * 1000 + 1500)) });
     }
+  }
+
+  /** Looks toward a point (-1..1 from her face) for a while, e.g. at the screen she was asked to see. */
+  glance(x: number, y: number, seconds: number): void {
+    this.glanceAt = { x, y };
+    this.glanceUntil = this.t + seconds;
   }
 
   stopSpeaking(): void {
@@ -430,9 +438,10 @@ export class Life {
     }
 
     // Gaze.
+    const glancing = t < this.glanceUntil;
     const mode: GazeMode = this.dozing
       ? "doze"
-      : sense.petting || p.over || (cursorActive && p.near)
+      : glancing || sense.petting || p.over || (cursorActive && p.near)
         ? "cursor"
         : this.talking
           ? "talk"
@@ -443,7 +452,7 @@ export class Life {
               : this.working
                 ? "work"
                 : "idle";
-    this.gaze.update(t, mode, { x: p.x, y: p.y });
+    this.gaze.update(t, mode, glancing ? this.glanceAt : { x: p.x, y: p.y });
 
     // Small, never-repeating head and body drift; livelier with more energy.
     const liveliness = 0.6 + 0.6 * this.energy;

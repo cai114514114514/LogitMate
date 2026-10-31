@@ -26,7 +26,8 @@ pub fn vision_model(base_url: &str, vision: Option<String>, chat: Option<String>
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct ChatMessage {
     pub role: String,
-    pub content: String,
+    /// Text, or OpenAI-style content parts (text and images).
+    pub content: serde_json::Value,
 }
 
 #[derive(Serialize, Clone)]
