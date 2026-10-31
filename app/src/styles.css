@@ -8,6 +8,7 @@
 html,
 body {
   margin: 0;
+  transition: opacity 0.35s;
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -217,4 +218,9 @@ body {
   border: 1px solid var(--edge);
   font-size: 13px;
   pointer-events: none;
+}
+
+/* Stepping aside for a call or a full-screen app: fade out before the window hides. */
+body.aside {
+  opacity: 0;
 }

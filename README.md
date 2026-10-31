@@ -4,6 +4,7 @@ An AI desktop companion that brings any Live2D model to life (macOS · Tauri 2).
 
 She stands on your desktop, follows your cursor with her eyes, sways when you drag her, reacts to head pats, and chats with you in a speech bubble — switching her own expressions as she talks and remembering what you tell her.
 
+- **Lives in your desktop.** Drop her on a window and she stands on it, rides along when you move it, and tumbles down when you close it. Push her past the screen edge and she peeks in. She steps aside during calls and full-screen apps, and stays out of your screenshots.
 - **Alive on any rig.** Her eyes dart and her head follows, her mouth moves as her words appear, she nods, tilts, hops and looks away, hums, stretches, yawns at night and dozes off when you're gone. Stroke her head with the cursor to pet her; shake it at her and she gets dizzy.
 - **Any model, zero setup.** On first launch with a new model she looks at each of its expressions (rendered offscreen) and a vision model works out what they mean — heart eyes, blush, a loading spinner, a prop, an outfit — whatever the files are called.
 - **A voice that fits her.** With a Xiaomi MiMo key she speaks her replies, in a voice a vision model designs from how she looks (you audition and keep one), with her mood in her tone and her mouth following the audio.

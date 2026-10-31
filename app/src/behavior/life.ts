@@ -354,6 +354,7 @@ export class Life {
   // Reused every frame: she runs all day, so the frame loop makes no garbage of its own.
   private offsets: Record<string, number> = {};
   private frame: LifeFrame = { look: { x: 0, y: 0 }, gaze: { x: 0, y: 0 }, offsets: this.offsets, eyeOpen: 1 };
+  private peekSide: -1 | 0 | 1 = 0;
   private glanceUntil = 0;
   private glanceAt = { x: 0, y: 0 };
   private shift = 0;
@@ -398,6 +399,11 @@ export class Life {
       const seconds = voiced ? text.length / 5 : this.talker.remaining;
       this.onEvent({ type: "hands", ms: Math.max(2500, Math.min(8000, seconds * 1000 + 1500)) });
     }
+  }
+
+  /** Peeking in from behind the left (-1) or right (1) screen edge, or not (0). */
+  peek(side: -1 | 0 | 1): void {
+    this.peekSide = side;
   }
 
   /** Looks toward a point (-1..1 from her face) for a while, e.g. at the screen she was asked to see. */
@@ -476,7 +482,16 @@ export class Life {
               : this.working
                 ? "work"
                 : "idle";
-    this.gaze.update(t, mode, glancing ? this.glanceAt : { x: p.x, y: p.y });
+    // Peeking from a screen edge, she looks into the screen whenever nothing else holds her eyes.
+    const peeking = this.peekSide !== 0 && (mode === "idle" || mode === "work" || mode === "around");
+    const peekAt = { x: -this.peekSide * 0.6, y: 0.1 };
+    this.gaze.update(t, peeking ? "cursor" : mode, glancing ? this.glanceAt : peeking ? peekAt : { x: p.x, y: p.y });
+    if (this.peekSide !== 0) {
+      // Leaning out from behind the edge.
+      add("ParamAngleZ", this.peekSide * 10);
+      add("ParamBodyAngleZ", this.peekSide * 4);
+      add("ParamAngleX", -this.peekSide * 6);
+    }
 
     // Small, never-repeating head and body drift; livelier with more energy.
     const liveliness = 0.6 + 0.6 * this.energy;

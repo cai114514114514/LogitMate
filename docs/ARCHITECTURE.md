@@ -19,6 +19,7 @@ Tauri 2 (Rust, app/src-tauri)                     WebView (TypeScript, app/src)
 ├─ front_app.rs   frontmost app name (Focus)       ├─ behavior/focus.ts       Focus Partner session rules
 ├─ screen.rs      screenshot on request            ├─ brain/look.ts           "look at my screen" requests
                                                    ├─ brain/watch.ts          Watch Over Me: glances, rare remarks
+├─ windows.rs     other windows' frames, mic in use, capture exclusion
 └─ tts.rs         Xiaomi MiMo speech               ├─ voice/speaker.ts        sentence-by-sentence speech, audio-driven mouth
                                                    ├─ voice/sentences.ts      sentence cutting, emotion style tags
                                                    └─ voice/design.ts         a voice that fits the character
@@ -118,6 +119,15 @@ Off by default; ticking *Watch Over Me* explains what happens and asks first (`b
 - She does not look while you talk to her, while she speaks or dozes, when nobody has typed or moved the mouse for 3 minutes (`user_idle`: `CGEventSourceSecondsSinceLastEventType`, no permission needed), or with a meeting, screen-sharing or password app in front.
 - In a focus session she only speaks when you look stuck or have drifted off the task.
 - Typing now also keeps her from dozing off, and wakes her.
+
+## Desktop presence (M3)
+She lives in the desktop rather than a fixed box (`behavior/presence.ts`, `windows.rs`).
+- **Standing on windows**: dropped with her feet near a window's top edge (and room above it for her), she lands on it, soles slightly in its title bar. Every 50 ms the window list (`CGWindowListCopyWindowInfo`: frames, owners and layers only, no titles or contents) says where it is; she rides along and sways with its speed like when dragged. Gone for two looks in a row (closed, minimized, another Space), she falls to the bottom of the screen with gravity and lands with a hop and a surprised face. Her feet are found once from a still of the rest pose.
+- **Above the screen top**: her window includes room for the bubble above her head, so standing on a window can put that room off screen. `constrainFrameRect:toScreen:` is replaced so macOS doesn't push the window down, and the bubble moves down to stay on screen.
+- **Peeking**: pushed more than 35% past the left or right screen edge, she stays there with 55% showing, leaning out and looking into the screen.
+- **Stepping aside** (*Step Aside for Calls & Full Screen*, on by default): while the default microphone is in use by any app (CoreAudio "running somewhere", no permission, nothing recorded) or the frontmost window covers a whole display, she fades out and hides, and comes back afterwards; two checks 2 s apart before changing.
+- **Out of captures**: her window has NSWindowSharingNone, so screenshots and recordings that honor it leave her out, including her own glances at the screen. ScreenCaptureKit-based sharing may still show her, which is what stepping aside is for. Dev builds can opt back in with `LOGITMATE_ALLOW_CAPTURE=1` to take screenshots of her.
+- Dev builds: `/dropon <owner>` puts her on a window's top edge, `/edge left|right` pushes her past an edge.
 
 ## Voice (M3)
 Text to speech with Xiaomi MiMo V2.5 (`tts.rs`): OpenAI-style chat completions where the assistant message is the text and an `audio` field picks the voice; the reply carries base64 WAV. Built-in voices (冰糖, Mia…), VoiceDesign (a voice from a description) and VoiceClone (a voice from a sample). The key is `MIMO_API_KEY`/`mimo_api` (env, `.env`, then Keychain) and never reaches the webview.

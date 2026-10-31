@@ -14,7 +14,9 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let speak_on = app.state::<crate::settings::SettingsStore>().get().speak.unwrap_or(true);
     let speak = CheckMenuItem::with_id(app, "speak", "Speak Aloud", true, speak_on, None::<&str>)?;
     let voice = MenuItem::with_id(app, "voice", "Design Her Voice…", true, None::<&str>)?;
-    let watch_on = app.state::<crate::settings::SettingsStore>().get().watch.unwrap_or(false);
+    let settings = app.state::<crate::settings::SettingsStore>().get();
+    let watch_on = settings.watch.unwrap_or(false);
+    let aside = CheckMenuItem::with_id(app, "step-aside", "Step Aside for Calls & Full Screen", true, settings.step_aside.unwrap_or(true), None::<&str>)?;
     let watch = CheckMenuItem::with_id(app, "watch", "Watch Over Me", true, watch_on, None::<&str>)?;
     app.manage(WatchItem(watch.clone()));
     let focus = MenuItem::with_id(app, "focus", "Focus With Me…", true, None::<&str>)?;
@@ -50,6 +52,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             &PredefinedMenuItem::separator(app)?,
             &toggle,
             &on_top,
+            &aside,
             &size,
             &pick,
             &about,
@@ -74,6 +77,10 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
                 "watch" => {
                     let on = watch.is_checked().unwrap_or(false);
                     let _ = win.emit("pet://menu", if on { "watch-on" } else { "watch-off" });
+                }
+                "step-aside" => {
+                    let on = aside.is_checked().unwrap_or(true);
+                    let _ = win.emit("pet://menu", if on { "step-aside-on" } else { "step-aside-off" });
                 }
                 "speak" => {
                     let on = speak.is_checked().unwrap_or(true);

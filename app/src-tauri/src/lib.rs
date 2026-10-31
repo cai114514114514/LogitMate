@@ -11,6 +11,7 @@ mod secrets;
 mod settings;
 mod tray;
 mod tts;
+mod windows;
 
 use llm::{ChatMessage, ChatState};
 use memory::{Memory, StoredMessage};
@@ -290,6 +291,18 @@ fn front_app() -> Option<front_app::FrontApp> {
     front_app::frontmost()
 }
 
+/// Other apps' on-screen windows, front to back (frames and owners only).
+#[tauri::command]
+async fn list_windows() -> Vec<windows::WindowInfo> {
+    windows::list(std::process::id() as i32)
+}
+
+/// Whether the microphone is in use by some app (she steps aside during calls).
+#[tauri::command]
+async fn mic_in_use() -> bool {
+    windows::mic_in_use()
+}
+
 /// Seconds since the last keyboard or mouse input.
 #[tauri::command]
 fn user_idle() -> f64 {
@@ -387,6 +400,8 @@ pub fn run() {
             focus_terminal,
             front_app,
             user_idle,
+            list_windows,
+            mic_in_use,
             log
         ])
         .setup(|app| {
@@ -403,6 +418,14 @@ pub fn run() {
                 eprintln!("agent bridge unavailable: {e}");
             }
 
+            // Development builds can opt back into capture to take screenshots of her.
+            if let Some(win) = app.get_webview_window("main") {
+                windows::allow_offscreen(&win);
+            }
+            let allow_capture = cfg!(debug_assertions) && std::env::var_os("LOGITMATE_ALLOW_CAPTURE").is_some();
+            if let Some(win) = app.get_webview_window("main").filter(|_| !allow_capture) {
+                windows::exclude_from_capture(&win);
+            }
             tray::create(app.handle())?;
             cursor::spawn(app.handle().clone());
             Ok(())

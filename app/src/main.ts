@@ -1,7 +1,7 @@
 import "./log";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { currentMonitor, getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
+import { availableMonitors, currentMonitor, getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
 import { ask, message, open } from "@tauri-apps/plugin-dialog";
 import { AgentFace, type AgentEvent } from "./behavior/agentFace";
 import { Companion } from "./behavior/companion";
@@ -10,6 +10,7 @@ import { GESTURES, SPOKEN_GESTURES, type GestureName } from "./behavior/gestures
 import { Interaction, type WindowBox } from "./behavior/interaction";
 import { Life } from "./behavior/life";
 import { Mood } from "./behavior/mood";
+import { findPerch, isFullScreen, perchFeet, settleAtEdge, type Perch, type Rect, type WindowInfo } from "./behavior/presence";
 import { Reactions } from "./behavior/reactions";
 import { ChatSession } from "./brain/chat";
 import { buildExpressionMap, type ExpressionMap } from "./brain/expressions";
@@ -21,6 +22,7 @@ import { readModelSource } from "./model/loader";
 import { profileKey, type LearnedProfile } from "./model/semantics";
 import { PetModel } from "./renderer/petModel";
 import { Stage, startCubism } from "./renderer/stage";
+import { alphaBox } from "./renderer/stills";
 import { ChatUI } from "./ui/chatUi";
 import { writeBrief } from "./voice/design";
 import { Speaker } from "./voice/speaker";
@@ -35,6 +37,7 @@ interface Settings {
   persona?: string | null;
   speak?: boolean | null;
   watch?: boolean | null;
+  stepAside?: boolean | null;
 }
 
 /** Model heights for the Size menu, in logical pixels. */
@@ -513,6 +516,153 @@ async function main(): Promise<void> {
     }
   };
 
+  // Desktop presence (behavior/presence.ts): standing on windows, peeking from edges, stepping aside.
+  let perch: Perch | null = null;
+  // Where her feet are inside her window: offset from the left, gap above the bottom, and how
+  // tall she stands above them (points).
+  const feetIn = { x: box.width / 2, gap: 0, body: box.height - TALK_HEIGHT };
+  const measureFeet = async () => {
+    const still = await stage.still(() => model.poseStill(null));
+    const body = alphaBox(still);
+    if (!body) return;
+    const scale = canvas.width / canvas.clientWidth;
+    feetIn.x = canvas.offsetLeft + (body.x0 + body.x1) / 2 / scale;
+    feetIn.gap = box.height - (canvas.offsetTop + body.y1 / scale);
+    feetIn.body = (body.y1 - body.y0) / scale;
+    if (import.meta.env.DEV) {
+      console.info(
+        `[pet] feet: still ${still.width}×${still.height}, body ${JSON.stringify(body)}, canvas top ${canvas.offsetTop} ` +
+          `${canvas.clientWidth}×${canvas.clientHeight}, box ${box.width}×${box.height} → ${JSON.stringify(feetIn)}`,
+      );
+    }
+  };
+  const feet = () => ({ x: box.x + feetIn.x, y: box.y + box.height - feetIn.gap });
+  let area: Rect | null = null;
+  const moveBox = (x: number, y: number) => {
+    box.x = x;
+    box.y = y;
+    void win.setPosition(new LogicalPosition(x, y));
+    // Standing on a window, the room above her head can be above the screen: keep the bubble on it.
+    const hidden = area ? area.y - y : 0;
+    talk.style.transform = hidden > 0 ? `translateY(${Math.min(hidden, box.height - TALK_HEIGHT - 40)}px)` : "";
+  };
+  // Standing on a window, her soles sink this far into its title bar so she looks planted.
+  const SINK = 10;
+  const moveFeet = (fx: number, fy: number) => moveBox(fx - feetIn.x, fy + SINK - (box.height - feetIn.gap));
+  const workArea = async (): Promise<Rect | null> => {
+    const mon = await currentMonitor();
+    if (!mon) return null;
+    const a = mon.workArea ?? { position: mon.position, size: mon.size };
+    const s = mon.scaleFactor;
+    area = { x: a.position.x / s, y: a.position.y / s, width: a.size.width / s, height: a.size.height / s };
+    return area;
+  };
+  /** After a drag: land on a window under her feet, or settle on screen (peeking past an edge). */
+  const settle = async () => {
+    const windows = await invoke<WindowInfo[]>("list_windows").catch(() => []);
+    const f = feet();
+    const screen = await workArea();
+    const target = findPerch(f, windows, (screen?.y ?? 0) + feetIn.body);
+    if (target) {
+      perch = { id: target.id, dx: f.x - target.x };
+      life.peek(0);
+      moveFeet(f.x, target.y);
+    } else if (screen) {
+      const s = settleAtEdge(box, screen);
+      life.peek(s.side);
+      moveBox(s.x, s.y);
+    }
+    save({ x: box.x, y: box.y });
+  };
+  /** The window under her went away: she drops to the bottom of the screen and lands with a hop. */
+  const fall = async () => {
+    perch = null;
+    const screen = await workArea();
+    if (!screen) return;
+    const floor = screen.y + screen.height - box.height;
+    let v = 0;
+    let last = performance.now();
+    await new Promise<void>((done) => {
+      const step = (now: number) => {
+        const dt = Math.min(0.05, (now - last) / 1000);
+        last = now;
+        v += 2800 * dt;
+        const y = Math.min(floor, box.y + v * dt);
+        moveBox(box.x, y);
+        if (y >= floor || perch) return done();
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+    life.play("hop");
+    flash("surprised", 1200);
+    save({ x: box.x, y: box.y });
+    if (import.meta.env.DEV) console.info(`[pet] fell to y ${Math.round(box.y)}`);
+  };
+  // Riding along with the window she stands on.
+  let following = false;
+  let missed = 0;
+  let lastFollow = { x: 0, t: 0 };
+  setInterval(async () => {
+    if (!perch || following || interaction.dragging) return;
+    following = true;
+    try {
+      const windows = await invoke<WindowInfo[]>("list_windows");
+      if (!perch) return;
+      const f = perchFeet(perch, windows);
+      if (!f) {
+        // Gone for two looks in a row (not just a hiccup while it redraws): fall.
+        if (++missed >= 2) void fall();
+        return;
+      }
+      missed = 0;
+      const now = performance.now();
+      const cur = feet();
+      if (Math.abs(f.x - cur.x) > 0.5 || Math.abs(f.y + SINK - cur.y) > 0.5) {
+        interaction.carry(((f.x - lastFollow.x) / Math.max(1, now - lastFollow.t)) * 1000);
+        moveFeet(f.x, f.y);
+      }
+      lastFollow = { x: f.x, t: now };
+    } finally {
+      following = false;
+    }
+  }, 50);
+  // Stepping aside during calls (microphone in use) and full-screen apps.
+  let aside = false;
+  let asideVotes = 0;
+  setInterval(async () => {
+    if (settings.stepAside === false) {
+      asideVotes = 0;
+      if (aside) setAside(false);
+      return;
+    }
+    const [mic, windows, monitors] = await Promise.all([
+      invoke<boolean>("mic_in_use").catch(() => false),
+      invoke<WindowInfo[]>("list_windows").catch(() => []),
+      availableMonitors().catch(() => []),
+    ]);
+    const screens = monitors.map((m) => ({
+      x: m.position.x / m.scaleFactor,
+      y: m.position.y / m.scaleFactor,
+      width: m.size.width / m.scaleFactor,
+      height: m.size.height / m.scaleFactor,
+    }));
+    const want = mic || isFullScreen(windows[0], screens);
+    // Two looks in a row before changing, so a brief mic blip or a resize doesn't flicker her.
+    asideVotes = want === aside ? 0 : asideVotes + 1;
+    if (asideVotes >= 2) {
+      asideVotes = 0;
+      setAside(want);
+    }
+  }, 2000);
+  const setAside = (on: boolean) => {
+    aside = on;
+    if (import.meta.env.DEV) console.info(`[pet] step aside: ${on}`);
+    document.body.classList.toggle("aside", on);
+    if (on) setTimeout(() => aside && void win.hide(), 400);
+    else void win.show();
+  };
+
   const interaction = new Interaction(stage, box, {
     onTap: (fy) => {
       life.noteInteraction();
@@ -529,12 +679,15 @@ async function main(): Promise<void> {
         flash("surprised", 1500);
       }
     },
+    onDragStart: () => {
+      perch = null;
+    },
     moveTo: (x, y) => {
       box.x = x;
       box.y = y;
       win.setPosition(new LogicalPosition(x, y));
     },
-    onDragEnd: () => save({ x: box.x, y: box.y }),
+    onDragEnd: () => void settle(),
   });
   await interaction.attach();
   let lastAttention = performance.now();
@@ -577,6 +730,7 @@ async function main(): Promise<void> {
       await win.setSize(new LogicalSize(box.width, box.height));
       await win.setPosition(new LogicalPosition(box.x, box.y));
       save({ height: SIZES[id], x: box.x, y: box.y });
+      setTimeout(() => void measureFeet(), 300);
       if (SIZES[id] > texturesFor) setTimeout(() => location.reload(), 300);
     } else if (id === "chat") {
       await ui.openInput();
@@ -599,6 +753,8 @@ async function main(): Promise<void> {
       watchState = initialWatch(Date.now());
       watchState.nextGlance = Date.now() + 60_000;
       toast(zh ? "陪伴观察已开启～" : "Watch Over Me is on~");
+    } else if (id === "step-aside-on" || id === "step-aside-off") {
+      save({ stepAside: id === "step-aside-on" });
     } else if (id === "watch-off") {
       save({ watch: false });
       toast(zh ? "陪伴观察已关闭。" : "Watch Over Me is off.");
@@ -636,6 +792,7 @@ async function main(): Promise<void> {
   });
 
   stage.start();
+  setTimeout(() => void measureFeet(), 500);
   await win.show();
   console.info(
     `[pet] ${profile.name}: ${profile.expressions.length} expressions, ${profile.motions.length} motions, ` +
@@ -661,6 +818,26 @@ async function main(): Promise<void> {
         const still = await stage.still(() => model.poseStill(null));
         const brief = await writeBrief(settings.characterName || profile.name, settings.persona, zh, stillJpeg(still)).catch((e) => String(e));
         console.info(`[pet] brief: ${JSON.stringify(brief)}`);
+        return;
+      }
+      // Presence: put her feet on a window's top edge ("/dropon perchtest"), or push her past an
+      // edge ("/edge left"), then settle as after a drag.
+      const dropCmd = text?.match(/^\/dropon\s+(\S+)$/);
+      if (dropCmd) {
+        const target = (await invoke<WindowInfo[]>("list_windows")).find((w) => w.owner.toLowerCase().includes(dropCmd[1].toLowerCase()));
+        if (target) {
+          moveFeet(target.x + target.width / 2, target.y - 20);
+          await settle();
+        }
+        console.info(`[pet] dropon ${dropCmd[1]}: ${target ? `window ${target.id}, perch ${JSON.stringify(perch)}` : "not found"}`);
+        return;
+      }
+      const edgeCmd = text?.match(/^\/edge\s+(left|right)$/);
+      if (edgeCmd) {
+        const area = await workArea();
+        if (area) moveBox(edgeCmd[1] === "left" ? area.x - box.width * 0.6 : area.x + area.width - box.width * 0.4, box.y);
+        await settle();
+        console.info(`[pet] edge ${edgeCmd[1]}: x ${Math.round(box.x)}`);
         return;
       }
       // One glance decision on a prepared image instead of the screen: "/watchtest /tmp/logitmate-x.jpg"

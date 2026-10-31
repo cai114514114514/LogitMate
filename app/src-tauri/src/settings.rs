@@ -26,6 +26,8 @@ pub struct Settings {
     pub tts_voice: Option<String>,
     /// Watch Over Me: she glances at the screen now and then (opt-in, default off).
     pub watch: Option<bool>,
+    /// Step aside (hide) during calls and full-screen apps (default on).
+    pub step_aside: Option<bool>,
 }
 
 pub struct SettingsStore {

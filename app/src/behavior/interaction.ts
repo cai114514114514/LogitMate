@@ -29,6 +29,8 @@ export interface WindowBox {
 export interface InteractionHandlers {
   /** A click on the model that was not a drag; `fy` is its height on the model, 0 = top. */
   onTap: (fy: number) => void;
+  /** A drag begins (she leaves whatever she was standing on). */
+  onDragStart?: () => void;
   /** Moves the window; called at most once per frame while dragging. */
   moveTo: (x: number, y: number) => void;
   onDragEnd: () => void;
@@ -41,6 +43,8 @@ export class Interaction {
   private pendingMove: { x: number; y: number } | null = null;
   private lastMove = { x: 0, t: 0, vx: 0 };
   private swayVelocity = 0;
+  /** Horizontal speed (px/s) while something else carries her, e.g. the window she stands on. */
+  private carried = { vx: 0, until: 0 };
   private lastCursorChange = 0;
   private cursorDirty = true;
   private framesSinceHitTest = 0;
@@ -77,6 +81,7 @@ export class Interaction {
       const dy = e.screenY - p.sy;
       if (!p.dragging && Math.hypot(dx, dy) > DRAG_SLOP) {
         p.dragging = true;
+        this.handlers.onDragStart?.();
         canvas.classList.add("grabbing");
       }
       if (p.dragging) this.pendingMove = { x: p.wx + dx, y: p.wy + dy };
@@ -111,7 +116,8 @@ export class Interaction {
     }
 
     // Spring toward a lean opposite to the drag direction; it overshoots a little on release.
-    const target = this.press?.dragging ? Math.max(-1, Math.min(1, -this.lastMove.vx / 1500)) : 0;
+    const vx = this.press?.dragging ? this.lastMove.vx : now < this.carried.until ? this.carried.vx : 0;
+    const target = Math.max(-1, Math.min(1, -vx / 1500));
     const accel = 60 * (target - model.sway) - 7 * this.swayVelocity;
     this.swayVelocity += accel * dt;
     model.sway += this.swayVelocity * dt;
@@ -135,6 +141,15 @@ export class Interaction {
     p.stillMs = this.press ? 0 : now - this.lastCursorChange;
     p.near = near;
     p.over = this.hit && !this.press;
+  }
+
+  get dragging(): boolean {
+    return !!this.press?.dragging;
+  }
+
+  /** She is being carried at `vx` px/s (the window she stands on moved): she sways like when dragged. */
+  carry(vx: number): void {
+    this.carried = { vx, until: performance.now() + 120 };
   }
 
   /** Frame hook: decide click-through from what is under the cursor (model pixel or UI). */
