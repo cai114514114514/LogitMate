@@ -43,7 +43,17 @@ Tauri 2 (Rust, app/src-tauri)                     WebView (TypeScript, app/src)
 - Texture scale = min(1, largest display height × 1.5 / model canvas height in pixels); textures are decoded with `createImageBitmap(..., { premultiplyAlpha: "premultiply", resize… })`.
 - Mask textures = ceil(masked drawables / 36). One mask texture holds 36 masks; beyond that, masked parts are drawn unclipped (DeepSeek-chan has 49).
 - The window is shown as soon as loading starts (transparent and click-through): WebKit suspends hidden webviews, which stalls loading.
-- 60 fps while the cursor moves near her or she is being dragged, 30 fps otherwise.
+- Frame rate follows what is happening (see Performance).
+
+## Performance
+Measured on an M4 Max with DeepSeek-chan (509 parameters, 131 physics settings), per frame: Cubism Core deforming the model about 2.2 ms, physics 0.6–1.3 ms, drawing 0.8 ms, everything of ours (life layer, gaze, hit test) under 0.1 ms. So the main lever is how many frames are drawn:
+- **Frame rate by state** (`main.ts`): 60 fps while someone drags her, moves the cursor on or right next to her window, or a gesture, petting or glance plays; 30 while the cursor moves somewhere around her (her eyes still follow it) or she talks or thinks; 24 idle; 20 after a minute without attention; 15 dozing; nothing while the window is hidden. The "around her" area is large (1.5× her height), so treating it as full engagement kept her at 60 fps whenever the user worked on that side of the screen. 24 and 15 divide 120 Hz evenly, so ProMotion displays get a steady cadence; the pacer keeps that cadence instead of drifting.
+- **Physics at 30 steps/s** (rigs often ask for 60): Cubism interpolates between steps, so it looks the same and halves the physics cost.
+- **No MSAA**: the canvas is already at device resolution.
+- **Cursor polling** (`cursor.rs`): every 16 ms within 360 px of the window, every 100 ms farther away; the window frame is cached and refreshed on move/resize events; moves under half a pixel are not sent.
+- **No per-frame garbage**: the life layer, pointer state, projection matrix and parameter routes are reused every frame, so the JS heap stays flat (about 300 MB WebContent RSS through four minutes at 60 fps).
+- **Textures for the current size**: decoded at 1.5× the on-screen height (43 MB instead of 80 MB at Medium); picking a larger size reloads them.
+- Dev builds log fps and the per-frame split every 10 s; `/part <hooks|update|render|after> off` switches parts of the frame off to bisect cost or memory.
 
 ## Click-through
 - The window ignores the mouse by default. Rust pushes the global cursor every 16 ms in window logical pixels.

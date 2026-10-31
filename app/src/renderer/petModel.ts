@@ -30,6 +30,11 @@ import { loadTexture } from "./textures";
 export { Priority };
 
 export const SHADER_PATH = "/cubism/shaders/";
+/**
+ * Physics steps per second. Rigs often ask for 60; Cubism interpolates between steps, so 30
+ * looks the same on a desktop pet and halves the cost of the second-largest part of a frame.
+ */
+const PHYSICS_FPS = 30;
 
 const NEUTRAL_EXPRESSION = "__neutral";
 
@@ -60,7 +65,7 @@ export interface LoadOptions {
   url: (relativePath: string) => string;
   canvasWidth: number;
   canvasHeight: number;
-  /** Largest on-screen model height we expect, in device pixels; decides texture resolution. */
+  /** On-screen model height in device pixels; textures are decoded at 1.5× that. */
   maxDisplayHeightPx: number;
   onProgress?: (step: string) => void;
 }
@@ -117,12 +122,28 @@ export class PetModel extends CubismUserModel {
 
   /** The parameter to write for `name`: itself, or the physics input that drives it. */
   private route(name: string): Route {
-    return this.routes.get(name) ?? { id: name, scale: 1 };
+    let r = this.routes.get(name);
+    if (!r) {
+      r = { id: name, scale: 1 };
+      this.routes.set(name, r);
+    }
+    return r;
   }
 
   private addRouted(name: string, value: number): void {
     const r = this.route(name);
     this._model.addParameterValueById(this.id(r.id), value * r.scale);
+  }
+
+  /**
+   * Offsets added after physics: physics outputs with no input to route to, and limbs that are
+   * physics outputs (their inputs move the whole body, so limbs are never routed).
+   */
+  private afterPhysics(name: string): boolean {
+    const limb = this.limbs.get(name);
+    if (limb) return this.physicsOut.has(limb.id);
+    const r = this.routes.get(name);
+    return (!r || r.id === name) && this.physicsOut.has(name);
   }
 
   private hasParameter(name: string): boolean {
@@ -178,11 +199,15 @@ export class PetModel extends CubismUserModel {
     progress(`${this.expressions.size - 1} expressions`);
 
     if (s.getPhysicsFileName()) {
-      const buf = await fetchBuffer(opts.url(s.getPhysicsFileName()));
+      let buf = await fetchBuffer(opts.url(s.getPhysicsFileName()));
       try {
         const json = JSON.parse(decoder.decode(buf));
         this.routes = physicsRoutes(json);
         this.physicsOut = physicsOutputs(json);
+        if (json.Meta && !(json.Meta.Fps > 0 && json.Meta.Fps <= PHYSICS_FPS)) {
+          json.Meta.Fps = PHYSICS_FPS;
+          buf = jsonBuffer(json);
+        }
       } catch {
         this.routes.clear();
         this.physicsOut.clear();
@@ -399,19 +424,13 @@ export class PetModel extends CubismUserModel {
       this.addRouted(P.ParamBodyAngleX, this.sway * 6);
     }
     const pose = this.procedural;
-    const afterPhysics: [string, number][] = [];
+    // Before physics: everything except physics outputs nothing can route (those come after).
     for (const name in pose.offsets) {
+      const v = pose.offsets[name];
+      if (v === 0 || this.afterPhysics(name)) continue;
       const limb = this.limbs.get(name);
-      if (limb) {
-        // Limbs are never routed: their physics inputs move the whole body.
-        const value = pose.offsets[name] * limb.scale;
-        if (this.physicsOut.has(limb.id)) afterPhysics.push([limb.id, value]);
-        else model.addParameterValueById(this.id(limb.id), value);
-      } else if (!this.routes.has(name) && this.physicsOut.has(name)) {
-        afterPhysics.push([name, pose.offsets[name]]);
-      } else {
-        this.addRouted(name, pose.offsets[name]);
-      }
+      if (limb) model.addParameterValueById(this.id(limb.id), v * limb.scale);
+      else this.addRouted(name, v);
     }
     if (pose.gaze) {
       // Eyes jump ahead of the head, which catches up through the smoothed look target.
@@ -421,7 +440,12 @@ export class PetModel extends CubismUserModel {
     }
 
     this.scheduler.onLateUpdate(model, dt);
-    for (const [id, value] of afterPhysics) model.addParameterValueById(this.id(id), value);
+    for (const name in pose.offsets) {
+      const v = pose.offsets[name];
+      if (v === 0 || !this.afterPhysics(name)) continue;
+      const limb = this.limbs.get(name);
+      model.addParameterValueById(this.id(limb?.id ?? name), v * (limb?.scale ?? 1));
+    }
     if (pose.eyeOpen < 1) {
       for (const id of this.eyeBlinkIds) model.multiplyParameterValueById(id, pose.eyeOpen);
     }

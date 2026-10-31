@@ -12,10 +12,9 @@ const HIT_ALPHA = 16;
 const DRAG_SLOP = 4;
 /** Where the face sits, as a fraction of the model's height; the gaze is aimed from here. */
 const FACE_Y = 0.22;
-/** Frame rate while someone is interacting, and when nobody is. */
-const ACTIVE_FPS = 60;
-const IDLE_FPS = 30;
-/** How long after the last pointer movement we stay at the active frame rate. */
+/** The cursor this close to the window (CSS px) counts as engaging with her directly. */
+const CLOSE_PX = 40;
+/** How long after the last pointer movement near her the interaction counts as active. */
 const ACTIVE_MS = 2000;
 /** With a still cursor over the pet, re-check the pixel this often (the model keeps moving). */
 const HIT_RECHECK_FRAMES = 6;
@@ -46,6 +45,11 @@ export class Interaction {
   private cursorDirty = true;
   private framesSinceHitTest = 0;
   private hit = false;
+  /**
+   * How closely someone is engaging, for the frame rate (main.ts): "close" while dragging her or
+   * moving the cursor on or right next to the window, "near" while moving it somewhere around her.
+   */
+  engagement: "none" | "near" | "close" = "none";
   /** The cursor as she sees it, updated every frame. */
   pointer: PointerState = { x: 0, y: 0, fx: -1, fy: -1, stillMs: 1e9, near: false, over: false };
 
@@ -117,19 +121,20 @@ export class Interaction {
     const { x, y, w, h } = this.onModel();
     // Far away the gaze is already saturated, so smooth tracking only matters near the pet.
     const near = Math.hypot(x - w / 2, y - h / 2) < h * 1.5;
-    const active = !!this.press || model.sway !== 0 || (near && now - this.lastCursorChange < ACTIVE_MS);
-    this.stage.maxFps = active ? ACTIVE_FPS : IDLE_FPS;
+    const moving = now - this.lastCursorChange < ACTIVE_MS;
+    const c = this.cursor;
+    const atWindow = c.x > -CLOSE_PX && c.y > -CLOSE_PX && c.x < this.box.width + CLOSE_PX && c.y < this.box.height + CLOSE_PX;
+    this.engagement = this.press || model.sway !== 0 || (atWindow && moving) ? "close" : near && moving ? "near" : "none";
 
     const reach = h * 0.5;
-    this.pointer = {
-      x: Math.tanh((x - w / 2) / reach),
-      y: Math.tanh((h * FACE_Y - y) / reach),
-      fx: x / w,
-      fy: y / h,
-      stillMs: this.press ? 0 : now - this.lastCursorChange,
-      near,
-      over: this.hit && !this.press,
-    };
+    const p = this.pointer;
+    p.x = Math.tanh((x - w / 2) / reach);
+    p.y = Math.tanh((h * FACE_Y - y) / reach);
+    p.fx = x / w;
+    p.fy = y / h;
+    p.stillMs = this.press ? 0 : now - this.lastCursorChange;
+    p.near = near;
+    p.over = this.hit && !this.press;
   }
 
   /** Frame hook: decide click-through from what is under the cursor (model pixel or UI). */

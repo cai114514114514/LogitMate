@@ -49,6 +49,12 @@ interface HookStatus {
   codexConnected: boolean;
 }
 
+/**
+ * Frame rates: someone interacting or a gesture playing; talking or thinking; idle; idle with
+ * nobody paying attention for a while; dozing.
+ */
+const FPS = { active: 60, lively: 30, idle: 24, calm: 20, asleep: 15 };
+const CALM_AFTER_MS = 60_000;
 /** Greet again after being away this long. */
 const GREET_AFTER_HOURS = 6;
 const FOCUS_BREAK_MS = 5 * 60_000;
@@ -122,11 +128,13 @@ async function main(): Promise<void> {
   const stage = new Stage(canvas);
   const source = await readModelSource(modelPath);
   const dpr = window.devicePixelRatio || 1;
+  // Textures are decoded for the size she is shown at; choosing a larger size reloads them.
+  const texturesFor = settings.height ?? SIZES["size-m"];
   const model = await PetModel.load(stage.gl, source.normalized, {
     url: source.url,
     canvasWidth: stage.canvas.width,
     canvasHeight: stage.canvas.height,
-    maxDisplayHeightPx: SIZES["size-l"] * dpr,
+    maxDisplayHeightPx: texturesFor * dpr,
     onProgress: step,
   });
   stage.model = model;
@@ -451,6 +459,7 @@ async function main(): Promise<void> {
     onDragEnd: () => save({ x: box.x, y: box.y }),
   });
   await interaction.attach();
+  let lastAttention = performance.now();
   stage.hooks = {
     beforeUpdate: (dt) => {
       interaction.beforeUpdate(dt);
@@ -461,7 +470,20 @@ async function main(): Promise<void> {
       model.procedural = { offsets: f.offsets, eyeOpen: f.eyeOpen, gaze: f.gaze };
       life.voice = speaker.mouth();
       life.voiceBusy = speaker.busy;
-      if (life.talking) stage.maxFps = 60;
+      // Most of a frame is Cubism Core deforming the model; drawing fewer frames is the big saving.
+      const now = performance.now();
+      const engaged = interaction.engagement;
+      if (engaged !== "none" || life.talking || life.thinking || ui.inputOpen) lastAttention = now;
+      stage.maxFps =
+        engaged === "close" || life.animating
+          ? FPS.active
+          : engaged === "near" || life.talking || life.thinking
+            ? FPS.lively
+            : life.asleep
+              ? FPS.asleep
+              : now - lastAttention > CALM_AFTER_MS
+                ? FPS.calm
+                : FPS.idle;
     },
     afterDraw: () => interaction.afterDraw(),
   };
@@ -477,6 +499,7 @@ async function main(): Promise<void> {
       await win.setSize(new LogicalSize(box.width, box.height));
       await win.setPosition(new LogicalPosition(box.x, box.y));
       save({ height: SIZES[id], x: box.x, y: box.y });
+      if (SIZES[id] > texturesFor) setTimeout(() => location.reload(), 300);
     } else if (id === "chat") {
       await ui.openInput();
     } else if (id === "voice") {
@@ -553,6 +576,13 @@ async function main(): Promise<void> {
         const jpeg = await invoke<string>("screen_capture", rect ?? {}).catch((e) => String(e));
         if (jpeg.length > 100) await invoke("debug_save_image", { name: "shot", base64: jpeg });
         console.info(`[pet] shot: ${jpeg.length > 100 ? `${Math.round((jpeg.length * 3) / 4 / 1024)} KB` : jpeg}`);
+        return;
+      }
+      // Frame parts on/off, to bisect cost or memory: "/part render off"
+      const partCmd = text?.match(/^\/part\s+(hooks|update|render|after)\s+(on|off)$/);
+      if (partCmd) {
+        stage.debugParts[partCmd[1] as keyof typeof stage.debugParts] = partCmd[2] === "on";
+        console.info(`[pet] parts ${JSON.stringify(stage.debugParts)}`);
         return;
       }
       const playCmd = text?.match(/^\/play\s+(\w+)$/);

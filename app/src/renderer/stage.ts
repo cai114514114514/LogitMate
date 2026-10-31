@@ -35,16 +35,21 @@ export class Stage {
   hooks: FrameHooks = {};
   /** Lower when the pet is idle and nobody is looking, to save power. */
   maxFps = 60;
+  /** Development: switch parts of the frame off to find what costs time or memory. */
+  readonly debugParts = { hooks: true, update: true, render: true, after: true };
 
   private last = 0;
   private raf = 0;
   private pixel = new Uint8Array(4);
-  private stats = { frames: 0, since: 0 };
+  private stats = { frames: 0, since: 0, hooks: 0, update: 0, render: 0, after: 0 };
   private stills: { pose: () => void; done: (s: Still) => void }[] = [];
+  private proj = new CubismMatrix44();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: true });
+    // No MSAA: the canvas is already at device resolution, and multisampling costs GPU bandwidth
+    // on every frame of a window that is always on screen.
+    const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false });
     if (!gl) throw new Error("WebGL2 is not available");
     this.gl = gl;
   }
@@ -65,14 +70,25 @@ export class Stage {
   start(): void {
     const tick = (now: number) => {
       this.raf = requestAnimationFrame(tick);
+      const interval = 1000 / this.maxFps;
       const elapsed = now - this.last;
-      if (elapsed < 1000 / this.maxFps - 1) return;
+      // A little slack for display timing jitter (120 Hz ProMotion delivers 8.3 ms steps).
+      if (elapsed < interval - 2) return;
       const dt = this.last === 0 ? 1 / 60 : Math.min(elapsed / 1000, 0.1);
-      this.last = now;
+      // Keep the cadence instead of drifting by the overshoot.
+      this.last = elapsed > interval * 2 ? now : now - (elapsed % interval);
       this.frame(dt);
       if (import.meta.env.DEV) this.countFrame(now);
     };
     this.raf = requestAnimationFrame(tick);
+    // Nothing to draw while the window is hidden.
+    document.addEventListener("visibilitychange", () => {
+      cancelAnimationFrame(this.raf);
+      if (!document.hidden) {
+        this.last = 0;
+        this.raf = requestAnimationFrame(tick);
+      }
+    });
   }
 
   stop(): void {
@@ -82,8 +98,15 @@ export class Stage {
   private countFrame(now: number): void {
     this.stats.frames++;
     if (now - this.stats.since < 10_000) return;
-    if (this.stats.since) console.info(`[pet] ${((this.stats.frames * 1000) / (now - this.stats.since)).toFixed(1)} fps (cap ${this.maxFps})`);
-    this.stats = { frames: 0, since: now };
+    const st = this.stats;
+    const per = (ms: number) => (ms / Math.max(1, st.frames)).toFixed(2);
+    if (st.since) {
+      console.info(
+        `[pet] ${((st.frames * 1000) / (now - st.since)).toFixed(1)} fps (cap ${this.maxFps}) · ms/frame: ` +
+          `hooks ${per(st.hooks)} update ${per(st.update)} render ${per(st.render)} hit ${per(st.after)} · ${this.canvas.width}×${this.canvas.height}`,
+      );
+    }
+    this.stats = { frames: 0, since: now, hooks: 0, update: 0, render: 0, after: 0 };
   }
 
   /**
@@ -110,10 +133,20 @@ export class Stage {
     }
 
     this.clear();
-    this.hooks.beforeUpdate?.(dt);
-    model.update(dt);
-    this.render(model);
-    this.hooks.afterDraw?.();
+    const parts = this.debugParts;
+    const t0 = performance.now();
+    if (parts.hooks) this.hooks.beforeUpdate?.(dt);
+    const t1 = performance.now();
+    if (parts.update) model.update(dt);
+    const t2 = performance.now();
+    if (parts.render) this.render(model);
+    const t3 = performance.now();
+    if (parts.after) this.hooks.afterDraw?.();
+    const t4 = performance.now();
+    this.stats.hooks += t1 - t0;
+    this.stats.update += t2 - t1;
+    this.stats.render += t3 - t2;
+    this.stats.after += t4 - t3;
   }
 
   private clear(): void {
@@ -151,9 +184,10 @@ export class Stage {
   private projection(model: PetModel): CubismMatrix44 {
     const winAspect = this.canvas.width / this.canvas.height;
     const fit = Math.min(1, winAspect / model.aspect()) * 0.98;
-    const m = new CubismMatrix44();
-    m.scale(fit / winAspect, fit);
-    return m;
+    // Reused; drawing multiplies the model matrix into it, so it is reset every frame.
+    this.proj.loadIdentity();
+    this.proj.scale(fit / winAspect, fit);
+    return this.proj;
   }
 
   /** Alpha (0-255) of the last drawn frame at a CSS-pixel point; only valid inside afterDraw. */

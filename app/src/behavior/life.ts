@@ -7,7 +7,7 @@
 // at her makes her dizzy. Everything is offsets on standard parameters (see gestures.ts), so the
 // logic here never touches the model and is unit-tested with a fake clock.
 
-import { GESTURES, sampleGesture, type GestureName, type ProceduralGesture } from "./gestures";
+import { GESTURES, sampleTrack, type GestureName, type ProceduralGesture } from "./gestures";
 
 export interface PointerState {
   /** Cursor relative to her face, -1..1 on each axis (y up), saturating far away. */
@@ -349,6 +349,9 @@ export class Life {
   private petLevel = 0;
   private petTilt = 0;
   private voiceOpen = 0;
+  // Reused every frame: she runs all day, so the frame loop makes no garbage of its own.
+  private offsets: Record<string, number> = {};
+  private frame: LifeFrame = { look: { x: 0, y: 0 }, gaze: { x: 0, y: 0 }, offsets: this.offsets, eyeOpen: 1 };
   private glanceUntil = 0;
   private glanceAt = { x: 0, y: 0 };
   private shift = 0;
@@ -369,6 +372,11 @@ export class Life {
 
   get asleep(): boolean {
     return this.dozing;
+  }
+
+  /** A gesture, petting or a look-around is playing: worth full frame rate. */
+  get animating(): boolean {
+    return this.playing.length > 0 || this.petLevel > 0.05 || this.t < this.aroundUntil || this.t < this.glanceUntil;
   }
 
   play(name: GestureName, amount = 1): void {
@@ -410,7 +418,8 @@ export class Life {
     this.t += dt;
     const t = this.t;
     const r = this.random;
-    const offsets: Record<string, number> = {};
+    const offsets = this.offsets;
+    for (const id in offsets) offsets[id] = 0;
     const add = (id: string, v: number) => (offsets[id] = (offsets[id] ?? 0) + v);
     const cursorActive = p.stillMs < CURSOR_ACTIVE_MS;
 
@@ -535,14 +544,19 @@ export class Life {
     let gestureClose = 0;
     this.playing = this.playing.filter((pl) => t - pl.start < pl.gesture.duration);
     for (const pl of this.playing) {
-      for (const [id, v] of Object.entries(sampleGesture(pl.gesture, t - pl.start, pl.amount))) {
+      const tracks = pl.gesture.tracks;
+      for (const id in tracks) {
+        const v = sampleTrack(tracks[id], t - pl.start) * pl.amount;
         if (id === "EyeClose") gestureClose = Math.max(gestureClose, v);
         else add(id, v);
       }
     }
 
-    const eyeOpen = 1 - clamp(Math.max(this.dozeLevel, this.petLevel * 0.85, gestureClose), 0, 1);
-    return { look: this.gaze.head, gaze: this.gaze.eye, offsets, eyeOpen };
+    const frame = this.frame;
+    frame.look = this.gaze.head;
+    frame.gaze = this.gaze.eye;
+    frame.eyeOpen = 1 - clamp(Math.max(this.dozeLevel, this.petLevel * 0.85, gestureClose), 0, 1);
+    return frame;
   }
 
   private wake(startled: boolean): void {
