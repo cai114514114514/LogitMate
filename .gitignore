@@ -1,3 +1,9 @@
 .DS_Store
+# Secrets (API keys) never go into the repo
+.env
+.env.*
+!.env.example
+# Vite cache
+.vite/
 # Downloaded Live2D models: keep them out of the repo (their licenses forbid redistribution)
 /DeepSeek-chan*/
