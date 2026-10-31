@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter, Manager, Wry};
 pub struct WatchItem(pub CheckMenuItem<Wry>);
 
 /// Menu ids the webview handles itself (sizing, model choice, about).
-const FORWARDED: &[&str] = &["chat", "look", "focus", "voice", "agents", "size-s", "size-m", "size-l", "pick-model", "relearn", "forget", "about"];
+const FORWARDED: &[&str] = &["chat", "look", "focus", "voice", "agents", "size-xs", "size-s", "size-m", "size-l", "pick-model", "relearn", "forget", "about"];
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let chat = MenuItem::with_id(app, "chat", "Talk to Her…", true, None::<&str>)?;
@@ -16,6 +16,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let voice = MenuItem::with_id(app, "voice", "Design Her Voice…", true, None::<&str>)?;
     let settings = app.state::<crate::settings::SettingsStore>().get();
     let watch_on = settings.watch.unwrap_or(false);
+    let see_through = CheckMenuItem::with_id(app, "see-through", "See-Through on Hover (⌥ to Touch)", true, settings.see_through.unwrap_or(true), None::<&str>)?;
     let aside = CheckMenuItem::with_id(app, "step-aside", "Step Aside for Calls & Full Screen", true, settings.step_aside.unwrap_or(true), None::<&str>)?;
     let watch = CheckMenuItem::with_id(app, "watch", "Watch Over Me", true, watch_on, None::<&str>)?;
     app.manage(WatchItem(watch.clone()));
@@ -29,6 +30,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         "Size",
         true,
         &[
+            &MenuItem::with_id(app, "size-xs", "Tiny", true, None::<&str>)?,
             &MenuItem::with_id(app, "size-s", "Small", true, None::<&str>)?,
             &MenuItem::with_id(app, "size-m", "Medium", true, None::<&str>)?,
             &MenuItem::with_id(app, "size-l", "Large", true, None::<&str>)?,
@@ -53,6 +55,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             &PredefinedMenuItem::separator(app)?,
             &toggle,
             &on_top,
+            &see_through,
             &aside,
             &size,
             &pick,
@@ -82,6 +85,10 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
                 "watch" => {
                     let on = watch.is_checked().unwrap_or(false);
                     let _ = win.emit("pet://menu", if on { "watch-on" } else { "watch-off" });
+                }
+                "see-through" => {
+                    let on = see_through.is_checked().unwrap_or(true);
+                    let _ = win.emit("pet://menu", if on { "see-through-on" } else { "see-through-off" });
                 }
                 "step-aside" => {
                     let on = aside.is_checked().unwrap_or(true);

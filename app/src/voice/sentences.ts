@@ -2,24 +2,20 @@
 // sentence instead of waiting for the whole reply.
 
 const END = /[。！？!?…\n]+["'”’）)]*|[.;；](?=\s|$)/g;
-/** For the first piece of a line, a comma is enough: speech starts sooner. */
-const EAGER_END = /[。！？!?…\n，,、]+["'”’）)]*|[.;；](?=\s|$)/g;
 /** Shorter pieces wait to join the next sentence ("嗯。" alone sounds clipped). */
 const MIN_CHARS = 4;
 /** Without an ending, a long run is cut at a comma so the first audio is not delayed. */
 const MAX_CHARS = 60;
 
-export function splitSentences(buffer: string, flush = false, eager = false): { sentences: string[]; rest: string } {
+export function splitSentences(buffer: string, flush = false): { sentences: string[]; rest: string } {
   const sentences: string[] = [];
   let start = 0;
   let pending = "";
-  for (const m of buffer.matchAll(eager ? EAGER_END : END)) {
-    // Only the first piece is cut eagerly; the rest waits for whole sentences.
-    if (eager && sentences.length) break;
+  for (const m of buffer.matchAll(END)) {
     const end = m.index! + m[0].length;
     const piece = pending + buffer.slice(start, end);
     start = end;
-    if (piece.trim().length < (eager ? 3 : MIN_CHARS)) {
+    if (piece.trim().length < MIN_CHARS) {
       pending = piece;
       continue;
     }
@@ -40,39 +36,7 @@ export function splitSentences(buffer: string, flush = false, eager = false): { 
   return { sentences: sentences.filter(Boolean), rest };
 }
 
-const CJK = /[぀-ヿ㐀-鿿]/;
-
-/** MiMo style tags for her emotions; the tag language follows the sentence. */
-const STYLE_ZH: Record<string, string> = {
-  happy: "开心",
-  love: "温柔 甜美",
-  shy: "害羞 小声",
-  sad: "悲伤",
-  angry: "生气",
-  confused: "疑惑",
-  thinking: "沉吟",
-  nervous: "忐忑",
-  smug: "俏皮 得意",
-  surprised: "惊讶",
-};
-const STYLE_EN: Record<string, string> = {
-  happy: "cheerful",
-  love: "tender, sweet",
-  shy: "shy, soft",
-  sad: "sad",
-  angry: "annoyed",
-  confused: "puzzled",
-  thinking: "thoughtful",
-  nervous: "nervous",
-  smug: "playful, smug",
-  surprised: "surprised",
-};
-
-/** The sentence with a leading style tag for the emotion, or a whisper for self-talk. */
-export function styled(sentence: string, emotion: string | null, quiet: boolean): string {
-  const zh = CJK.test(sentence);
-  const tag = quiet ? (zh ? "小声 自言自语" : "whispering to herself") : emotion ? (zh ? STYLE_ZH : STYLE_EN)[emotion] : "";
-  // Self-talk lines come wrapped in parentheses, which MiMo would read as a direction.
-  const text = sentence.replace(/^[（(](.*)[）)]$/s, "$1");
-  return tag ? `(${tag})${text}` : text;
+/** Self-talk lines come wrapped in parentheses, which MiMo would read as a stage direction. */
+export function speakable(sentence: string): string {
+  return sentence.replace(/^[（(](.*)[）)]$/s, "$1");
 }

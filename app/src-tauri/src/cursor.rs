@@ -13,6 +13,8 @@ use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 pub struct CursorEvent {
     pub x: f64,
     pub y: f64,
+    /// ⌥ Option is held: the user means to touch her (she is see-through otherwise).
+    pub alt: bool,
 }
 
 /// Poll interval near the window, and far from it.
@@ -28,7 +30,19 @@ pub fn to_window(cursor: (f64, f64), window_origin: (i32, i32), scale: f64) -> C
     CursorEvent {
         x: (cursor.0 - window_origin.0 as f64) / scale,
         y: (cursor.1 - window_origin.1 as f64) / scale,
+        alt: false,
     }
+}
+
+/// Whether ⌥ Option is held right now (no permission needed to read modifier state).
+fn option_held() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::{NSEvent, NSEventModifierFlags};
+        NSEvent::modifierFlags_class().contains(NSEventModifierFlags::Option)
+    }
+    #[cfg(not(target_os = "macos"))]
+    false
 }
 
 /// Whether a window-relative point is within `margin` of a window of `size` (logical pixels).
@@ -36,9 +50,9 @@ pub fn is_near(ev: CursorEvent, size: (f64, f64), margin: f64) -> bool {
     ev.x > -margin && ev.y > -margin && ev.x < size.0 + margin && ev.y < size.1 + margin
 }
 
-/// Moved enough to be worth telling the webview (half a logical pixel).
+/// Moved enough to be worth telling the webview (half a logical pixel), or Option changed.
 fn moved(a: Option<CursorEvent>, b: CursorEvent) -> bool {
-    a.is_none_or(|a| (a.x - b.x).abs() >= 0.5 || (a.y - b.y).abs() >= 0.5)
+    a.is_none_or(|a| (a.x - b.x).abs() >= 0.5 || (a.y - b.y).abs() >= 0.5 || a.alt != b.alt)
 }
 
 #[derive(Clone, Copy)]
@@ -73,7 +87,8 @@ pub fn spawn(app: AppHandle) {
                 };
                 *geometry.lock().unwrap() = geo;
                 if let (Some(g), Ok(c)) = (geo.filter(|g| g.visible), app.cursor_position()) {
-                    let ev = to_window((c.x, c.y), g.origin, g.scale);
+                    let mut ev = to_window((c.x, c.y), g.origin, g.scale);
+                    ev.alt = option_held();
                     if is_near(ev, g.size, NEAR_MARGIN) {
                         poll = NEAR_POLL;
                     }
@@ -116,12 +131,14 @@ mod tests {
     #[test]
     fn knows_near_from_far_and_skips_tiny_moves() {
         let size = (300.0, 770.0);
-        assert!(is_near(CursorEvent { x: 150.0, y: 400.0 }, size, 360.0));
-        assert!(is_near(CursorEvent { x: -300.0, y: 900.0 }, size, 360.0));
-        assert!(!is_near(CursorEvent { x: -400.0, y: 400.0 }, size, 360.0));
-        let a = CursorEvent { x: 10.0, y: 10.0 };
-        assert!(!moved(Some(a), CursorEvent { x: 10.2, y: 10.3 }));
-        assert!(moved(Some(a), CursorEvent { x: 10.6, y: 10.0 }));
+        let at = |x, y| CursorEvent { x, y, alt: false };
+        assert!(is_near(at(150.0, 400.0), size, 360.0));
+        assert!(is_near(at(-300.0, 900.0), size, 360.0));
+        assert!(!is_near(at(-400.0, 400.0), size, 360.0));
+        let a = CursorEvent { x: 10.0, y: 10.0, alt: false };
+        assert!(!moved(Some(a), CursorEvent { x: 10.2, y: 10.3, alt: false }));
+        assert!(moved(Some(a), CursorEvent { x: 10.6, y: 10.0, alt: false }));
+        assert!(moved(Some(a), CursorEvent { alt: true, ..a }));
         assert!(moved(None, a));
     }
 }

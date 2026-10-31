@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitSentences, styled } from "./sentences";
+import { speakable, splitSentences } from "./sentences";
 
 describe("splitSentences", () => {
   it("cuts complete sentences and keeps the unfinished rest", () => {
@@ -16,11 +16,6 @@ describe("splitSentences", () => {
     expect(splitSentences("最后一句", true)).toEqual({ sentences: ["最后一句"], rest: "" });
   });
 
-  it("starts a line at its first comma when eager", () => {
-    expect(splitSentences("好呀，我们一起做吧！然后", false, true)).toEqual({ sentences: ["好呀，"], rest: "我们一起做吧！然后" });
-    expect(splitSentences("嗯，", false, true).sentences).toEqual([]);
-  });
-
   it("cuts a long run at a comma", () => {
     const long = "这是一个很长很长的句子，" + "字".repeat(60);
     const { sentences } = splitSentences(long);
@@ -28,11 +23,9 @@ describe("splitSentences", () => {
   });
 });
 
-describe("styled", () => {
-  it("adds a style tag in the sentence's language", () => {
-    expect(styled("太好了！", "happy", false)).toBe("(开心)太好了！");
-    expect(styled("Great!", "happy", false)).toBe("(cheerful)Great!");
-    expect(styled("就这样吧。", null, false)).toBe("就这样吧。");
-    expect(styled("（我先接着做我这份……）", "happy", true)).toBe("(小声 自言自语)我先接着做我这份……");
+describe("speakable", () => {
+  it("unwraps self-talk so it is spoken, not read as a direction", () => {
+    expect(speakable("（我先接着做我这份……）")).toBe("我先接着做我这份……");
+    expect(speakable("太好了！")).toBe("太好了！");
   });
 });

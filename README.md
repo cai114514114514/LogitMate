@@ -4,6 +4,7 @@ An AI desktop companion that brings any Live2D model to life (macOS · Tauri 2).
 
 She stands on your desktop, follows your cursor with her eyes, sways when you drag her, reacts to head pats, and chats with you in a speech bubble — switching her own expressions as she talks and remembering what you tell her.
 
+- **Never in your way.** Move the cursor onto her and she turns see-through and lets your clicks pass to what's behind; hold ⌥ Option to touch her. Tuck her into the bottom edge so only her head shows, or make her tiny.
 - **Lives in your desktop.** Drop her on a window and she stands on it, rides along when you move it, and tumbles down when you close it. Push her past the screen edge and she peeks in. She steps aside during calls and full-screen apps, and stays out of your screenshots.
 - **Alive on any rig.** Her eyes dart and her head follows, her mouth moves as her words appear, she nods, tilts, hops and looks away, hums, stretches, yawns at night and dozes off when you're gone. Stroke her head with the cursor to pet her; shake it at her and she gets dizzy.
 - **A character of her own.** Each model gets its own persona, drafted from how she looks and editable in Settings; switch models and you switch characters.

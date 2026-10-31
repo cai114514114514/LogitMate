@@ -36,7 +36,7 @@ base64 = "0.22"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 # Frontmost app name for Focus Partner (already in the tree through Tauri).
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSRunningApplication"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSRunningApplication", "NSEvent"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
 
 

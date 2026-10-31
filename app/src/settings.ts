@@ -24,7 +24,9 @@ async function main(): Promise<void> {
 
   $("save-persona").addEventListener("click", async () => {
     if (!modelPath) return;
-    await savePersona(modelPath, { name: nameInput.value, persona: personaInput.value });
+    // The voice description belongs to the designed voice; keep it.
+    const voice = (await loadPersona(modelPath))?.voice;
+    await savePersona(modelPath, { name: nameInput.value, persona: personaInput.value, voice });
     await emit("persona:changed");
     personaStatus.textContent = "Saved. She'll be herself from the next thing she says.";
   });

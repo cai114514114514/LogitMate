@@ -22,6 +22,12 @@ body {
 #stage {
   position: absolute;
   display: block;
+  transition: opacity 0.15s;
+}
+
+/* See-through: the cursor is on her without ⌥, so clicks go to what is behind her. */
+#stage.ghost {
+  opacity: 0.2;
 }
 
 #stage.grabbing {

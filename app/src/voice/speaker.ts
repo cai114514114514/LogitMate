@@ -1,8 +1,9 @@
-// Speaks her lines with MiMo TTS: sentences are synthesized while the reply still streams (one
-// ahead of playback), played in order, and measured so her mouth follows the actual voice.
+// Speaks her lines with MiMo TTS: the first sentence is synthesized as soon as it is complete so
+// she starts talking early, the rest of the line in one piece so it flows naturally; each comes
+// with director's notes (voice/direction.ts). Audio is measured so her mouth follows the voice.
 
 import { invoke } from "@tauri-apps/api/core";
-import { splitSentences, styled } from "./sentences";
+import { speakable, splitSentences } from "./sentences";
 
 /** Sentences synthesized ahead of the one playing. */
 const LOOKAHEAD = 2;
@@ -23,10 +24,11 @@ export class Speaker {
   private analyser: AnalyserNode | null = null;
   private buffer = "";
   private quiet = false;
-  /** Nothing of the current line has been sent yet: cut its first piece at a comma. */
-  private lineStart = true;
+  /** The first sentence of the current line has been sent; the rest waits for the line to end. */
+  private firstSent = false;
+  private held = "";
   private queue: Promise<AudioBuffer | null>[] = [];
-  private waiting: { text: string; quiet: boolean }[] = [];
+  private waiting: { text: string; direction: string }[] = [];
   private source: AudioBufferSourceNode | null = null;
   private generation = 0;
   private playing = false;
@@ -36,11 +38,13 @@ export class Speaker {
   constructor(
     private voiceKey: string,
     private zh: boolean,
+    /** Director's notes for a line spoken with `emotion`. */
+    private direct: (emotion: string | null, quiet: boolean) => string = () => "",
   ) {}
 
   /** True while there is anything left to say. */
   get busy(): boolean {
-    return this.playing || this.queue.length > 0 || this.waiting.length > 0 || this.buffer.trim() !== "";
+    return this.playing || this.queue.length > 0 || this.waiting.length > 0 || (this.buffer + this.held).trim() !== "";
   }
 
   /** New text of the current line; `fresh` starts a new line (the old one is cut off). */
@@ -49,12 +53,13 @@ export class Speaker {
     if (fresh) this.stop();
     this.quiet = quiet;
     this.buffer += text;
-    for (;;) {
-      const { sentences, rest } = splitSentences(this.buffer, false, this.lineStart);
-      this.buffer = rest;
-      for (const s of sentences) this.enqueue(s);
-      if (!sentences.length || !this.lineStart) break;
-      this.lineStart = false;
+    const { sentences, rest } = splitSentences(this.buffer);
+    this.buffer = rest;
+    for (const s of sentences) {
+      if (!this.firstSent) {
+        this.firstSent = true;
+        this.enqueue(s);
+      } else this.held += s;
     }
   }
 
@@ -63,13 +68,16 @@ export class Speaker {
     if (!this.enabled) return;
     const { sentences } = splitSentences(this.buffer, true);
     this.buffer = "";
-    for (const s of sentences) this.enqueue(s);
-    this.lineStart = true;
+    const rest = this.held + sentences.join("");
+    this.held = "";
+    if (rest.trim()) this.enqueue(rest);
+    this.firstSent = false;
   }
 
   stop(): void {
     this.generation++;
-    this.lineStart = true;
+    this.firstSent = false;
+    this.held = "";
     this.buffer = "";
     this.queue = [];
     this.waiting = [];
@@ -117,7 +125,7 @@ export class Speaker {
   }
 
   private enqueue(sentence: string): void {
-    this.waiting.push({ text: styled(sentence, this.emotion, this.quiet), quiet: this.quiet });
+    this.waiting.push({ text: speakable(sentence), direction: this.direct(this.emotion, this.quiet) });
     this.pump();
   }
 
@@ -125,10 +133,10 @@ export class Speaker {
   private pump(): void {
     const gen = this.generation;
     while (this.queue.length < LOOKAHEAD && this.waiting.length) {
-      const { text } = this.waiting.shift()!;
+      const { text, direction } = this.waiting.shift()!;
       const started = performance.now();
       this.queue.push(
-        invoke<string>("tts_speak", { key: this.voiceKey, text, direction: "", zh: this.zh })
+        invoke<string>("tts_speak", { key: this.voiceKey, text, direction, zh: this.zh })
           .then((b64) => {
             if (import.meta.env.DEV) console.info(`[pet] tts ${Math.round(performance.now() - started)} ms: ${text}`);
             return gen === this.generation ? this.decode(b64) : null;

@@ -28,6 +28,8 @@ pub struct Settings {
     pub watch: Option<bool>,
     /// Step aside (hide) during calls and full-screen apps (default on).
     pub step_aside: Option<bool>,
+    /// See-through when the cursor is on her unless ⌥ Option is held (default on).
+    pub see_through: Option<bool>,
 }
 
 pub struct SettingsStore {

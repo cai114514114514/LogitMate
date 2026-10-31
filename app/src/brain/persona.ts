@@ -8,6 +8,8 @@ export interface Persona {
   name: string;
   /** Free text: looks, personality, how she talks, habits, limits. */
   persona: string;
+  /** What her designed voice is like (kept with the voice, used to direct each spoken line). */
+  voice?: string;
   updatedAt: string;
 }
 
@@ -30,14 +32,16 @@ export async function loadPersona(modelPath: string): Promise<Persona | null> {
   if (!text) return null;
   try {
     const p = JSON.parse(text) as Partial<Persona>;
-    return typeof p.name === "string" && typeof p.persona === "string" ? { name: p.name, persona: p.persona, updatedAt: p.updatedAt ?? "" } : null;
+    return typeof p.name === "string" && typeof p.persona === "string"
+      ? { name: p.name, persona: p.persona, voice: typeof p.voice === "string" ? p.voice : undefined, updatedAt: p.updatedAt ?? "" }
+      : null;
   } catch {
     return null;
   }
 }
 
 export async function savePersona(modelPath: string, p: Omit<Persona, "updatedAt">): Promise<Persona> {
-  const persona = { name: p.name.trim(), persona: p.persona.trim(), updatedAt: new Date().toISOString() };
+  const persona = { name: p.name.trim(), persona: p.persona.trim(), voice: p.voice?.trim() || undefined, updatedAt: new Date().toISOString() };
   await invoke("profile_save", { key: personaKey(modelPath), json: JSON.stringify(persona) });
   return persona;
 }

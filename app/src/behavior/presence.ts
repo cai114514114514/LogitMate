@@ -59,17 +59,25 @@ export function perchFeet(perch: Perch, windows: WindowInfo[]): { x: number; y: 
   return { x, y: w.y };
 }
 
+/** Tucked into the bottom edge, this share of her (model) height shows: head and shoulders. */
+export const TUCK_SHOWN = 0.4;
+
 /**
- * Where her window goes after a drag: fully on screen, or peeking in from behind the left or
- * right edge when pushed far enough past it. `side` is -1 at the left edge, 1 at the right.
+ * Where her window goes after a drag: fully on screen; peeking in from behind the left or right
+ * edge when pushed far enough past it (`side` -1 or 1); or tucked into the bottom edge with only
+ * her head and shoulders showing (`tucked`). `talk` is the room for the bubble above her model.
  */
-export function settleAtEdge(box: Rect, screen: Rect): { x: number; y: number; side: -1 | 0 | 1 } {
-  const y = Math.min(Math.max(box.y, screen.y), screen.y + screen.height - box.height);
+export function settleAtEdge(box: Rect, screen: Rect, talk = 0): { x: number; y: number; side: -1 | 0 | 1; tucked: boolean } {
+  const model = box.height - talk;
+  const bottom = screen.y + screen.height;
+  const pastBottom = box.y + box.height - bottom;
+  const tucked = pastBottom > model * PEEK_PAST;
+  const y = tucked ? bottom - talk - model * TUCK_SHOWN : Math.min(Math.max(box.y, screen.y), bottom - box.height);
   const pastLeft = screen.x - box.x;
   const pastRight = box.x + box.width - (screen.x + screen.width);
-  if (pastLeft > box.width * PEEK_PAST) return { x: screen.x - box.width * (1 - PEEK_SHOWN), y, side: -1 };
-  if (pastRight > box.width * PEEK_PAST) return { x: screen.x + screen.width - box.width * PEEK_SHOWN, y, side: 1 };
-  return { x: Math.min(Math.max(box.x, screen.x), screen.x + screen.width - box.width), y, side: 0 };
+  if (pastLeft > box.width * PEEK_PAST) return { x: screen.x - box.width * (1 - PEEK_SHOWN), y, side: -1, tucked };
+  if (pastRight > box.width * PEEK_PAST) return { x: screen.x + screen.width - box.width * PEEK_SHOWN, y, side: 1, tucked };
+  return { x: Math.min(Math.max(box.x, screen.x), screen.x + screen.width - box.width), y, side: 0, tucked };
 }
 
 /** A window covering a whole display: a full-screen video, game or presentation. */

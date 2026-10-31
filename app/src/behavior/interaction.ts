@@ -49,6 +49,18 @@ export class Interaction {
   private cursorDirty = true;
   private framesSinceHitTest = 0;
   private hit = false;
+  private overModel = false;
+  private overUi = false;
+  private alt = false;
+  private solidUntil = 0;
+  /**
+   * See-through: with the cursor on her she turns faint and lets clicks through to what is
+   * behind, unless ⌥ Option is held (or she was just petted), so she never blocks work.
+   */
+  seeThrough = true;
+  /** Called the first time she turns see-through, to tell the user about ⌥. */
+  onFirstSeeThrough: () => void = () => {};
+  private toldSeeThrough = false;
   /**
    * How closely someone is engaging, for the frame rate (main.ts): "close" while dragging her or
    * moving the cursor on or right next to the window, "near" while moving it somewhere around her.
@@ -64,7 +76,11 @@ export class Interaction {
   ) {}
 
   async attach(): Promise<void> {
-    await listen<{ x: number; y: number }>("pet://cursor", (e) => {
+    await listen<{ x: number; y: number; alt: boolean }>("pet://cursor", (e) => {
+      if (this.alt !== e.payload.alt) {
+        this.alt = e.payload.alt;
+        this.cursorDirty = true;
+      }
       if (!this.press) this.setCursor(e.payload.x, e.payload.y);
     });
     const canvas = this.stage.canvas;
@@ -140,7 +156,7 @@ export class Interaction {
     p.fy = y / h;
     p.stillMs = this.press ? 0 : now - this.lastCursorChange;
     p.near = near;
-    p.over = this.hit && !this.press;
+    p.over = this.overModel && !this.press;
   }
 
   get dragging(): boolean {
@@ -156,16 +172,32 @@ export class Interaction {
   afterDraw(): void {
     const { x, y } = this.cursor;
     const inside = x >= 0 && y >= 0 && x < this.box.width && y < this.box.height;
-    if (this.press) this.hit = true;
-    else if (!inside) this.hit = false;
-    else if (this.cursorDirty || ++this.framesSinceHitTest >= HIT_RECHECK_FRAMES) {
+    if (!inside) {
+      this.overModel = false;
+      this.overUi = false;
+    } else if (this.cursorDirty || ++this.framesSinceHitTest >= HIT_RECHECK_FRAMES) {
       // readPixels stalls the GPU pipeline, so only look when the answer may have changed.
       const m = this.onModel();
-      this.hit = !!document.elementFromPoint(x, y)?.closest(".ui") || this.stage.alphaAt(m.x, m.y) > HIT_ALPHA;
+      this.overUi = !!document.elementFromPoint(x, y)?.closest(".ui");
+      this.overModel = this.stage.alphaAt(m.x, m.y) > HIT_ALPHA;
       this.framesSinceHitTest = 0;
     }
     this.cursorDirty = false;
+    const touching = !!this.press || this.alt || !this.seeThrough || performance.now() < this.solidUntil;
+    const ghost = this.overModel && !this.overUi && !touching;
+    this.hit = !!this.press || this.overUi || (this.overModel && touching);
+    this.stage.canvas.classList.toggle("ghost", ghost);
+    if (ghost && !this.toldSeeThrough) {
+      this.toldSeeThrough = true;
+      this.onFirstSeeThrough();
+    }
     this.setIgnore(!this.hit);
+  }
+
+  /** Solid and touchable for a moment without ⌥ (e.g. while being petted). */
+  solidify(ms: number): void {
+    this.solidUntil = performance.now() + ms;
+    this.cursorDirty = true;
   }
 
   /** The cursor in model-canvas coordinates, with the canvas size. */

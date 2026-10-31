@@ -33,10 +33,20 @@ describe("presence", () => {
   it("peeks in from behind a screen edge when pushed far enough past it", () => {
     const screen = { x: 0, y: 25, width: 1728, height: 1092 };
     const box = (x: number, y = 300) => ({ x, y, width: 300, height: 770 });
-    expect(settleAtEdge(box(-50), screen)).toEqual({ x: 0, y: 300, side: 0 });
-    expect(settleAtEdge(box(-150), screen)).toEqual({ x: -135, y: 300, side: -1 });
-    expect(settleAtEdge(box(1600), screen)).toEqual({ x: 1563, y: 300, side: 1 });
+    expect(settleAtEdge(box(-50), screen)).toEqual({ x: 0, y: 300, side: 0, tucked: false });
+    expect(settleAtEdge(box(-150), screen)).toEqual({ x: -135, y: 300, side: -1, tucked: false });
+    expect(settleAtEdge(box(1600), screen)).toEqual({ x: 1563, y: 300, side: 1, tucked: false });
     expect(settleAtEdge(box(500, 0), screen).y).toBe(25);
+  });
+
+  it("tucks into the bottom edge with head and shoulders showing", () => {
+    const screen = { x: 0, y: 25, width: 1728, height: 1092 };
+    // 770 tall: 170 for the bubble, 600 of her. Pushed 300 past the bottom (more than 35%).
+    const s = settleAtEdge({ x: 500, y: 1117 - 770 + 300, width: 300, height: 770 }, screen, 170);
+    expect(s.tucked).toBe(true);
+    expect(s.y).toBe(1117 - 170 - 240);
+    // A little past the bottom just bounces back.
+    expect(settleAtEdge({ x: 500, y: 1117 - 770 + 100, width: 300, height: 770 }, screen, 170)).toMatchObject({ y: 347, tucked: false });
   });
 
   it("recognizes a full-screen window", () => {

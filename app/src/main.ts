@@ -26,6 +26,7 @@ import { Stage, startCubism } from "./renderer/stage";
 import { alphaBox } from "./renderer/stills";
 import { ChatUI } from "./ui/chatUi";
 import { writeBrief } from "./voice/design";
+import { direction } from "./voice/direction";
 import { Speaker } from "./voice/speaker";
 import { FocusUI } from "./ui/focusUi";
 
@@ -39,10 +40,11 @@ interface Settings {
   speak?: boolean | null;
   watch?: boolean | null;
   stepAside?: boolean | null;
+  seeThrough?: boolean | null;
 }
 
 /** Model heights for the Size menu, in logical pixels. */
-const SIZES: Record<string, number> = { "size-s": 420, "size-m": 600, "size-l": 820 };
+const SIZES: Record<string, number> = { "size-xs": 300, "size-s": 420, "size-m": 600, "size-l": 820 };
 /** Room above the head for the speech bubble and input. */
 const TALK_HEIGHT = 170;
 /** Narrow models still get a usable bubble. */
@@ -209,7 +211,11 @@ async function main(): Promise<void> {
   };
   syncLife();
   // Her voice (MiMo TTS), when a key is set; see voice/.
-  const speaker = new Speaker(learnedKey, zh);
+  // What the user just said, so her voice knows what she is answering.
+  let answering: string | null = null;
+  const speaker = new Speaker(learnedKey, zh, (emotion, quiet) =>
+    direction({ name: herName(), voice: persona?.voice, emotion, replyingTo: answering, quiet, zh }),
+  );
   const ttsStatus = () => invoke<{ available: boolean; hasVoice: boolean }>("tts_status", { key: learnedKey });
   speaker.enabled = (await ttsStatus()).available && settings.speak !== false;
   speaker.onError = (e) => console.warn("[pet] tts", e);
@@ -303,6 +309,7 @@ async function main(): Promise<void> {
         });
         if (keep) {
           await invoke("tts_save_voice", { key: learnedKey, wav });
+          persona = await savePersona(modelPath, { name: herName(), persona: herPersona() ?? "", voice: brief.description });
           speaker.enabled = settings.speak !== false;
           toast(zh ? "记住我的声音啦～" : "Voice saved~");
           return;
@@ -537,8 +544,12 @@ async function main(): Promise<void> {
   ui.onSubmit = (text) => {
     life.noteInteraction();
     speaker.stop();
-    if (isLookRequest(text)) void lookAtScreen(text);
-    else void companion.talk(text);
+    answering = text;
+    const done = () => {
+      answering = null;
+    };
+    if (isLookRequest(text)) void lookAtScreen(text).finally(done);
+    else void companion.talk(text).finally(done);
   };
   canvas.addEventListener("dblclick", () => {
     life.noteInteraction();
@@ -548,6 +559,7 @@ async function main(): Promise<void> {
   life.handPoses = map.actions.size;
   life.onEvent = (e) => {
     if (e.type === "petted") {
+      interaction.solidify(2500);
       mood.onPat();
       flash(mood.state.affection > 20 ? "love" : "happy", 2500);
     } else if (e.type === "dizzy") {
@@ -611,7 +623,7 @@ async function main(): Promise<void> {
       life.peek(0);
       moveFeet(f.x, target.y);
     } else if (screen) {
-      const s = settleAtEdge(box, screen);
+      const s = settleAtEdge(box, screen, TALK_HEIGHT);
       life.peek(s.side);
       moveBox(s.x, s.y);
     }
@@ -732,6 +744,16 @@ async function main(): Promise<void> {
     },
     onDragEnd: () => void settle(),
   });
+  interaction.seeThrough = settings.seeThrough !== false;
+  interaction.onFirstSeeThrough = () => {
+    try {
+      if (localStorage.getItem("logitmate.toldSeeThrough")) return;
+      localStorage.setItem("logitmate.toldSeeThrough", "1");
+    } catch {
+      // no storage: tell every launch
+    }
+    toast(zh ? "我会让鼠标穿过去，不挡你～想碰我就按住 ⌥ Option" : "I let your clicks through so I'm never in the way~ Hold ⌥ Option to touch me", 6000);
+  };
   await interaction.attach();
   let lastAttention = performance.now();
   stage.hooks = {
@@ -796,6 +818,9 @@ async function main(): Promise<void> {
       watchState = initialWatch(Date.now());
       watchState.nextGlance = Date.now() + 60_000;
       toast(zh ? "陪伴观察已开启～" : "Watch Over Me is on~");
+    } else if (id === "see-through-on" || id === "see-through-off") {
+      interaction.seeThrough = id === "see-through-on";
+      save({ seeThrough: interaction.seeThrough });
     } else if (id === "step-aside-on" || id === "step-aside-off") {
       save({ stepAside: id === "step-aside-on" });
     } else if (id === "watch-off") {
@@ -894,10 +919,11 @@ async function main(): Promise<void> {
         console.info(`[pet] dropon ${dropCmd[1]}: ${target ? `window ${target.id}, perch ${JSON.stringify(perch)}` : "not found"}`);
         return;
       }
-      const edgeCmd = text?.match(/^\/edge\s+(left|right)$/);
+      const edgeCmd = text?.match(/^\/edge\s+(left|right|bottom)$/);
       if (edgeCmd) {
         const area = await workArea();
-        if (area) moveBox(edgeCmd[1] === "left" ? area.x - box.width * 0.6 : area.x + area.width - box.width * 0.4, box.y);
+        if (area && edgeCmd[1] === "bottom") moveBox(box.x, area.y + area.height - box.height * 0.5);
+        else if (area) moveBox(edgeCmd[1] === "left" ? area.x - box.width * 0.6 : area.x + area.width - box.width * 0.4, box.y);
         await settle();
         console.info(`[pet] edge ${edgeCmd[1]}: x ${Math.round(box.x)}`);
         return;
