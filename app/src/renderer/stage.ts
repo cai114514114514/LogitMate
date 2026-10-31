@@ -10,7 +10,7 @@ let cubismStarted = false;
 export function startCubism(): void {
   if (cubismStarted) return;
   if (typeof Live2DCubismCore === "undefined") {
-    throw new Error("Cubism Core 未加载：请运行 pnpm sync:cubism（需要 vendor/cubism）");
+    throw new Error("Cubism Core is not loaded: run pnpm sync:cubism (needs vendor/cubism)");
   }
   const option = new Option();
   option.logFunction = (msg: string) => console.warn(`[cubism] ${msg}`);
@@ -43,7 +43,7 @@ export class Stage {
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: true });
-    if (!gl) throw new Error("WebGL2 不可用");
+    if (!gl) throw new Error("WebGL2 is not available");
     this.gl = gl;
   }
 

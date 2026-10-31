@@ -1,52 +1,65 @@
-# LogitMate 架构
+# LogitMate Architecture
 
 ```
-Tauri 2 (Rust, app/src-tauri)                  WebView (TypeScript, app/src)
-├─ lib.rs        命令、插件、启动               ├─ main.ts            启动流程、托盘菜单、窗口尺寸
-├─ cursor.rs     60Hz 全局鼠标 → pet://cursor   ├─ model/adapter.ts   ModelAdapter：多源合并 → model3 + 档案
-├─ tray.rs       菜单栏图标与菜单               ├─ model/loader.ts    通过 Tauri 读取模型目录
-├─ model_files.rs 列出模型目录、开放 asset 范围 ├─ renderer/petModel.ts  CubismUserModel 子类
-└─ settings.rs   settings.json（模型路径/位置）  ├─ renderer/stage.ts   WebGL2 画布、帧循环、像素命中
-                                                ├─ renderer/textures.ts 贴图缩小加载
-                                                ├─ behavior/interaction.ts 注视、穿透、拖拽、点击
-                                                └─ behavior/reactions.ts   按标签选表情/动作
+Tauri 2 (Rust, app/src-tauri)                     WebView (TypeScript, app/src)
+├─ lib.rs         commands, plugins, startup       ├─ main.ts               startup, layout, tray menu
+├─ cursor.rs      60 Hz global cursor → pet://cursor├─ model/adapter.ts      ModelAdapter: merge sources → model3 + profile
+├─ tray.rs        menu bar icon and menu           ├─ model/loader.ts       read a model folder through Tauri
+├─ model_files.rs list a model folder, scope assets├─ renderer/petModel.ts  CubismUserModel subclass
+├─ settings.rs    settings.json                    ├─ renderer/stage.ts     WebGL2 canvas, frame loop, pixel hit test
+├─ llm.rs         streaming OpenAI-compatible chat ├─ renderer/textures.ts  downscaled texture loading
+├─ memory.rs      SQLite: messages + user facts    ├─ behavior/interaction.ts gaze, click-through, drag, tap
+└─ secrets.rs     API key: env → .env → Keychain   ├─ behavior/reactions.ts   expressions/gestures by label
+                                                   ├─ behavior/mood.ts        emotion engine v1
+                                                   ├─ behavior/companion.ts   chat turn ↔ body, greeting, fidgets
+                                                   ├─ brain/tags.ts           streaming [emo:]/[act:]/[remember:] parser
+                                                   ├─ brain/expressions.ts    emotion/action vocabulary → this model
+                                                   ├─ brain/prompt.ts         system prompt
+                                                   ├─ brain/chat.ts           history, streaming, tag routing
+                                                   └─ ui/chatUi.ts            speech bubble and input
 ```
 
-## 关键流程
+## Loading a model
+1. `get_settings` returns the model path (`LOGITMATE_MODEL` overrides it in development).
+2. `list_model_files` lists the model folder and adds only that folder to the asset-protocol scope.
+3. `normalizeModel` merges model3.json, `*.vtube.json` hotkeys, a folder scan and cdi3 parameter names into a **completed model3** (in memory only) and a **ModelProfile** (labels, idle group, capabilities).
+4. `PetModel.load` feeds the completed model3 to the official `CubismModelSettingJson`, then loads moc, expressions, physics, pose, motions, renderer and textures.
 
-### 加载模型
-1. `get_settings` 读取模型路径（开发时可用环境变量 `LOGITMATE_MODEL` 指定）。
-2. `list_model_files` 列出模型目录，并把该目录加入 asset 协议的读取范围（只加这一个目录，不开放整个 Home）。
-3. `ModelAdapter.normalizeModel` 依次合并 model3.json、`*.vtube.json` 热键、文件夹扫描和 cdi3 参数名，产出**补全后的 model3**（只在内存里，不写盘）和 **ModelProfile**（表情和动作的标签、待机组、能力位）。
-4. `PetModel.load` 把补全后的 model3 交给官方 `CubismModelSettingJson`，依次加载 moc、表情、物理、姿势、动作，再创建渲染器和贴图。
+## Rendering
+- The window is a speech-bubble area (170 px) on top of the model; the model canvas keeps the model's aspect ratio.
+- Texture scale = min(1, largest display height × 1.5 / model canvas height in pixels); textures are decoded with `createImageBitmap(..., { premultiplyAlpha: "premultiply", resize… })`.
+- Mask textures = ceil(masked drawables / 36). One mask texture holds 36 masks; beyond that, masked parts are drawn unclipped (DeepSeek-chan has 49).
+- The window is shown as soon as loading starts (transparent and click-through): WebKit suspends hidden webviews, which stalls loading.
+- 60 fps while the cursor moves near her or she is being dragged, 30 fps otherwise.
 
-### 渲染与贴图
-- 窗口尺寸按模型画布的宽高比设置，投影矩阵把整个模型放进窗口。
-- 贴图缩放比例 = min(1, 最大显示高度 × 1.5 / 模型画布像素高度)。解码后先画到 OffscreenCanvas，再以 `UNPACK_PREMULTIPLY_ALPHA_WEBGL` 上传——WebKit 对 ImageBitmap 的 premultiplyAlpha 选项处理不可靠，绕道 canvas 后各引擎行为一致。
-- 遮罩纹理张数 = ceil(带遮罩的部件数 / 36)。一张纹理只能装 36 个遮罩，超出的部件会不经裁剪直接画出来（例如嘴里的部件露在外面）。
+## Click-through
+- The window ignores the mouse by default. Rust pushes the global cursor every 16 ms in window logical pixels.
+- After drawing, the frontend checks what is under the cursor: a UI element (`.ui`) or a model pixel with alpha > 16 turns click-through off. `readPixels` runs only when the cursor moved or every 6 frames.
 
-### 点击穿透
-- 窗口默认忽略鼠标事件（点击穿透）。Rust 每 16ms 推送一次全局鼠标坐标（换算成窗口内的逻辑像素）。
-- 每帧绘制完后，前端用 `readPixels` 读取鼠标下那个像素的 alpha：alpha > 16 时关闭穿透，否则打开。只在状态变化时调用 `set_ignore_cursor`。
-- 窗口在加载开始时就显示（这时是透明且穿透的）：WebKit 会挂起隐藏的 WebView，模型加载会因此卡住。
+## Chat (M2)
+1. The user double-clicks her (or picks *Talk to Her…*) and types; `ChatSession` stores the message and builds `[system, …last 24 messages]`.
+2. `systemPrompt` lists only the emotions and gestures this model can show, the user facts, the mood line, the time and the system locale.
+3. `chat_stream` (Rust) streams from the OpenAI-compatible endpoint — DeepSeek `deepseek-flash` by default — and emits `chat://delta` events. SSE is split on bytes, so multi-byte characters across chunks stay intact. The API key never reaches the webview.
+4. `TagParser` strips `[emo:X]`, `[act:Y]` and `[remember: …]` from the text as it streams, holding back a tag split across chunks. Emotions map to the model's expressions (`buildExpressionMap`), gestures play out and back, facts go to SQLite.
+5. Replies are stored with their tags, so later turns keep the same style. *Forget Everything…* clears messages, facts and mood.
 
-### 交互
-- 注视：以脸部（窗口高度 22% 处）为原点，经 tanh 软饱和后传给 `CubismLook`，鼠标离得再远也只是转头到极限。
-- 拖拽：按下后移动超过 4px 算拖拽，按屏幕坐标移动窗口；窗口的水平速度驱动一个弹簧，叠加到 AngleZ 和 BodyAngleX/Z 上，物理系统再把它转成头发和裙子的摆动，松手后会回弹。
-- 点击：点在窗口上部 32% 触发"摸头"，从带开心类标签的表情里随机挑一个，2.6 秒后恢复；点在身体上触发配对手势（"X打开"接"X关闭"）。
+## Emotion engine v1
+`Mood` keeps mood (−1..1, half-life 10 min toward 0.2), energy (from the local hour) and affection (pats +1, chats +0.5), persisted in localStorage. It feeds the prompt, greetings (first meeting, or back after 6 h) and idle fidgets (after 4 quiet minutes, more often when energetic).
 
-## 授权边界
-- `vendor/cubism/`：用户下载的 Cubism SDK（专有授权），已 gitignore。
-- `.cubism/framework/`：`pnpm sync:cubism` 生成，是 Framework 源码加上 `// @ts-nocheck` 的副本，让我们自己的 strict tsconfig 不被 SDK 的非 strict 代码拖累。
-- `public/cubism/`：Core 和 shader 的副本，供 Vite 提供。
-- 模型文件只按路径引用，测试夹具通过环境变量 `LOGITMATE_MODEL_DIR` 指向本地副本。
+## License boundaries
+- `app/vendor/cubism/`: the Cubism SDK you download (Live2D proprietary license), git-ignored.
+- `app/.cubism/framework/`: generated by `pnpm sync:cubism` — Framework sources with `// @ts-nocheck`, so our strict tsconfig is not dragged down by the SDK's non-strict code.
+- `app/public/cubism/`: copies of Core and shaders served by Vite.
+- Models are referenced by path only; the adapter test reads a local copy via `LOGITMATE_MODEL_DIR`.
+- `.env` holds secrets and is git-ignored; `.env.example` shows the expected name.
 
-## 开发
+## Development
 ```bash
 cd app
 pnpm install
-pnpm sync:cubism          # 需要先把 SDK 放到 vendor/cubism
-pnpm test                 # ModelAdapter、手势配对
-cd src-tauri && cargo test  # 设置存取、目录列举、坐标换算
+pnpm sync:cubism              # after placing the SDK in app/vendor/cubism
+pnpm test                     # adapter, tags, expressions, prompt, mood, gestures
+(cd src-tauri && cargo test)  # settings, folder listing, cursor math, SSE, .env, memory
 LOGITMATE_MODEL=/path/to/x.model3.json pnpm tauri dev
+echo "hello" > /tmp/logitmate-say.txt   # dev builds: send a chat message from a script
 ```

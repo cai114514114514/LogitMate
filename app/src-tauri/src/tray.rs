@@ -3,27 +3,40 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Menu ids the webview handles itself (sizing, model choice, about).
-const FORWARDED: &[&str] = &["size-s", "size-m", "size-l", "pick-model", "about"];
+const FORWARDED: &[&str] = &["chat", "size-s", "size-m", "size-l", "pick-model", "forget", "about"];
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
-    let toggle = MenuItem::with_id(app, "toggle", "显示 / 隐藏", true, None::<&str>)?;
-    let on_top = CheckMenuItem::with_id(app, "on-top", "总在最前", true, true, None::<&str>)?;
+    let chat = MenuItem::with_id(app, "chat", "Talk to Her…", true, None::<&str>)?;
+    let forget = MenuItem::with_id(app, "forget", "Forget Everything…", true, None::<&str>)?;
+    let toggle = MenuItem::with_id(app, "toggle", "Show / Hide", true, None::<&str>)?;
+    let on_top = CheckMenuItem::with_id(app, "on-top", "Always on Top", true, true, None::<&str>)?;
     let size = Submenu::with_items(
         app,
-        "大小",
+        "Size",
         true,
         &[
-            &MenuItem::with_id(app, "size-s", "小", true, None::<&str>)?,
-            &MenuItem::with_id(app, "size-m", "中", true, None::<&str>)?,
-            &MenuItem::with_id(app, "size-l", "大", true, None::<&str>)?,
+            &MenuItem::with_id(app, "size-s", "Small", true, None::<&str>)?,
+            &MenuItem::with_id(app, "size-m", "Medium", true, None::<&str>)?,
+            &MenuItem::with_id(app, "size-l", "Large", true, None::<&str>)?,
         ],
     )?;
-    let pick = MenuItem::with_id(app, "pick-model", "选择模型…", true, None::<&str>)?;
-    let about = MenuItem::with_id(app, "about", "关于模型", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "退出 LogitMate", true, None::<&str>)?;
+    let pick = MenuItem::with_id(app, "pick-model", "Choose Model…", true, None::<&str>)?;
+    let about = MenuItem::with_id(app, "about", "About This Model", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit LogitMate", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&toggle, &on_top, &size, &pick, &about, &PredefinedMenuItem::separator(app)?, &quit],
+        &[
+            &chat,
+            &PredefinedMenuItem::separator(app)?,
+            &toggle,
+            &on_top,
+            &size,
+            &pick,
+            &about,
+            &forget,
+            &PredefinedMenuItem::separator(app)?,
+            &quit,
+        ],
     )?;
 
     let mut builder = TrayIconBuilder::with_id("main")

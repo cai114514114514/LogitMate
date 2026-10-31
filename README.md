@@ -1,14 +1,17 @@
 # LogitMate
 
-任何 Live2D 模型拖进来都能活过来的 AI 桌宠（macOS，Tauri 2）。
+An AI desktop companion that brings any Live2D model to life (macOS · Tauri 2).
 
-- 产品需求：[docs/PRD.md](docs/PRD.md)
-- 架构说明：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+She stands on your desktop, follows your cursor with her eyes, sways when you drag her, reacts to head pats, and chats with you in a speech bubble — switching her own expressions as she talks and remembering what you tell her.
 
-## 运行
+- Product requirements: [docs/PRD.md](docs/PRD.md)
+- Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
-1. 在 <https://www.live2d.com/sdk/download/web/> 同意协议，下载 Cubism SDK for Web 5，解压为 `app/vendor/cubism`（不进 git）。
-2. 运行（在 app 目录下）：
+## Run
+
+1. Download the Cubism SDK for Web 5 from <https://www.live2d.com/sdk/download/web/> (accepting Live2D's license) and unzip it as `app/vendor/cubism` (it is not in git).
+2. Copy `.env.example` to `.env` and set `DEEPSEEK_API_KEY` (or save the key to the macOS Keychain).
+3. In `app/`:
 
 ```bash
 pnpm install
@@ -16,13 +19,15 @@ pnpm test
 LOGITMATE_MODEL="/path/to/model.model3.json" pnpm tauri dev
 ```
 
-不设置 `LOGITMATE_MODEL` 时，首次启动会弹出文件选择框；之后可以在菜单栏图标里切换模型、调整大小、开关置顶。
+Without `LOGITMATE_MODEL`, the first launch asks you to choose a model. The menu bar icon lets you talk to her, switch models, resize her, keep her on top, and wipe her memory.
 
-## 许可证
+Double-click her to chat. Tap her head for a pat, her body for a gesture, and drag her anywhere.
 
-LogitMate 的源代码以 [MIT 协议](LICENSE) 开源。
+## License
 
-MIT 协议只覆盖本仓库里的代码，不包括：
+LogitMate's source code is released under the [MIT License](LICENSE).
 
-- **Live2D Cubism SDK**：Live2D 公司的专有软件，需要你自己在官网同意协议后下载。商业发布须遵守 Live2D 的 SDK 发布许可。
-- **Live2D 模型**：版权归各自的作者。LogitMate 只读取你本地的模型文件，不复制、不上传；公开使用前请阅读模型附带的条款并注明作者。
+The MIT License covers the code in this repository only. It does not cover:
+
+- **The Live2D Cubism SDK** — proprietary software from Live2D Inc., which you download yourself after accepting its license. Commercial releases must follow Live2D's SDK release license.
+- **Live2D models** — copyright belongs to their creators. LogitMate only reads model files from your disk and never copies or uploads them; read each model's terms and credit its creators when you share your work.

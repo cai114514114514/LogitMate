@@ -1,10 +1,15 @@
 mod cursor;
+mod llm;
+mod memory;
 mod model_files;
+mod secrets;
 mod settings;
 mod tray;
 
+use llm::{ChatMessage, ChatState};
+use memory::{Memory, StoredMessage};
 use settings::{Settings, SettingsStore};
-use tauri::{Manager, WebviewWindow};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
 
 #[tauri::command]
 fn get_settings(store: tauri::State<SettingsStore>) -> Settings {
@@ -38,6 +43,80 @@ fn set_ignore_cursor(window: WebviewWindow, ignore: bool) -> Result<(), String> 
     window.set_ignore_cursor_events(ignore).map_err(|e| e.to_string())
 }
 
+/// Streams a reply as `chat://delta` events tagged with `id`; resolves when the reply is complete.
+#[tauri::command]
+async fn chat_stream(
+    app: AppHandle,
+    chat: State<'_, ChatState>,
+    store: State<'_, SettingsStore>,
+    id: u32,
+    messages: Vec<ChatMessage>,
+) -> Result<(), String> {
+    let s = store.get();
+    let base = s.llm_base_url.unwrap_or_else(|| llm::DEFAULT_BASE_URL.into());
+    let model = s.llm_model.unwrap_or_else(|| llm::DEFAULT_MODEL.into());
+    let key = secrets::deepseek_key();
+    if key.is_none() && base.contains("deepseek.com") {
+        return Err("NO_API_KEY".into());
+    }
+    llm::stream_chat(&app, &chat, id, &base, &model, key, messages).await
+}
+
+#[tauri::command]
+fn chat_cancel(chat: State<ChatState>) {
+    chat.cancel();
+}
+
+#[tauri::command]
+fn has_api_key() -> bool {
+    secrets::deepseek_key().is_some()
+}
+
+/// Saves a DeepSeek key to the macOS Keychain.
+#[tauri::command]
+fn set_api_key(key: String) -> Result<(), String> {
+    secrets::store_deepseek_key(&key)
+}
+
+#[tauri::command]
+fn memory_append(memory: State<Memory>, role: String, content: String) -> Result<(), String> {
+    memory.append(&role, &content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn memory_recent(memory: State<Memory>, limit: u32) -> Result<Vec<StoredMessage>, String> {
+    memory.recent(limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn memory_add_fact(memory: State<Memory>, text: String) -> Result<(), String> {
+    memory.add_fact(&text).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn memory_facts(memory: State<Memory>, limit: u32) -> Result<Vec<String>, String> {
+    memory.facts(limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn memory_forget_all(memory: State<Memory>) -> Result<(), String> {
+    memory.forget_all().map_err(|e| e.to_string())
+}
+
+/// Development only: text in /tmp/logitmate-say.txt is taken (and the file removed) as if the user
+/// had typed it, so chat can be exercised from scripts. Release builds always return None.
+#[tauri::command]
+fn debug_take_input() -> Option<String> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    let path = std::env::temp_dir().join("logitmate-say.txt");
+    let path = if path.exists() { path } else { std::path::PathBuf::from("/tmp/logitmate-say.txt") };
+    let text = std::fs::read_to_string(&path).ok()?;
+    let _ = std::fs::remove_file(&path);
+    Some(text.trim().to_string()).filter(|t| !t.is_empty())
+}
+
 /// Frontend console output, mirrored to stdout.
 #[tauri::command]
 fn log(level: String, text: String) {
@@ -53,6 +132,16 @@ pub fn run() {
             save_settings,
             list_model_files,
             set_ignore_cursor,
+            chat_stream,
+            chat_cancel,
+            has_api_key,
+            set_api_key,
+            memory_append,
+            memory_recent,
+            memory_add_fact,
+            memory_facts,
+            memory_forget_all,
+            debug_take_input,
             log
         ])
         .setup(|app| {
@@ -62,6 +151,9 @@ pub fn run() {
 
             let dir = app.path().app_config_dir()?;
             app.manage(SettingsStore::load(dir.join("settings.json")));
+            let data = app.path().app_data_dir()?;
+            app.manage(Memory::open(&data.join("memory.db"))?);
+            app.manage(ChatState::default());
 
             tray::create(app.handle())?;
             cursor::spawn(app.handle().clone());

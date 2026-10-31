@@ -7,17 +7,19 @@ import { Priority } from "../renderer/priority";
 
 const HAPPY = /爱心|脸红|＞＜|><|笑|heart|blush|smile|happy|love/i;
 /** Outfit and prop toggles: not a reaction, and they would stick. */
-const NOT_A_FEELING = /体型|裙|鞋|衣|尾巴|眼镜|钢盆|帽|body|skirt|shoe|cloth|tail|glasses|hat/i;
+export const NOT_A_FEELING = /体型|裙|鞋|衣|尾巴|眼镜|钢盆|帽|body|skirt|shoe|cloth|tail|glasses|hat/i;
 const OPEN = /打开|开启|切换出来|出来|open/i;
 const CLOSE = /关闭|切回|收回|close/i;
 
 const pick = <T>(list: T[]): T | undefined => list[Math.floor(Math.random() * list.length)];
 
+export type Gesture = { open: ProfileMotion; close?: ProfileMotion };
+
 export class Reactions {
   private expressionTimer = 0;
   private busy = false;
   private headPool: ProfileExpression[];
-  private gestures: { open: ProfileMotion; close?: ProfileMotion }[];
+  private gestures: Gesture[];
 
   constructor(private model: PetModel) {
     const { expressions, motions } = model.normalized.profile;
@@ -36,15 +38,24 @@ export class Reactions {
 
   pat(): void {
     const e = pick(this.headPool);
-    if (!e) return;
-    this.model.setExpression(e.name);
-    clearTimeout(this.expressionTimer);
-    this.expressionTimer = window.setTimeout(() => this.model.clearExpression(), 2600);
+    if (e) this.express(e.name, 2600);
   }
 
-  gesture(): void {
+  /** Shows an expression, then returns to neutral after `ms` (0 keeps it until the next call). */
+  express(name: string, ms: number): void {
+    this.model.setExpression(name);
+    clearTimeout(this.expressionTimer);
+    if (ms > 0) this.expressionTimer = window.setTimeout(() => this.model.clearExpression(), ms);
+  }
+
+  relax(ms = 0): void {
+    clearTimeout(this.expressionTimer);
+    this.expressionTimer = window.setTimeout(() => this.model.clearExpression(), ms);
+  }
+
+  /** Plays a gesture out and back; a random one when none is given. */
+  gesture(g: Gesture | undefined = pick(this.gestures)): void {
     if (this.busy) return;
-    const g = pick(this.gestures);
     if (!g) return this.pat();
     this.busy = true;
     const started = this.model.startMotion(g.open.group, g.open.index, Priority.Normal, () => {
@@ -59,7 +70,7 @@ export class Reactions {
 }
 
 /** Pairs "X打开" with "X关闭" so a gesture plays out and back; unpaired models use every action. */
-export function pairGestures(actions: ProfileMotion[]): { open: ProfileMotion; close?: ProfileMotion }[] {
+export function pairGestures(actions: ProfileMotion[]): Gesture[] {
   const opens = actions.filter((m) => OPEN.test(m.label) && !CLOSE.test(m.label));
   if (!opens.length) return actions.map((open) => ({ open }));
   return opens.map((open) => ({ open, close: actions.find((m) => m !== open && sameGesture(m.label, open.label)) }));

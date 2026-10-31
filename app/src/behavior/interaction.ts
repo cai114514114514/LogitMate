@@ -8,7 +8,7 @@ import type { Stage } from "../renderer/stage";
 const HIT_ALPHA = 16;
 /** Pointer travel (CSS px) before a press becomes a drag. */
 const DRAG_SLOP = 4;
-/** Where the face sits, as a fraction of window height; the gaze is aimed from here. */
+/** Where the face sits, as a fraction of the model's height; the gaze is aimed from here. */
 const FACE_Y = 0.22;
 /** Frame rate while someone is interacting, and when nobody is. */
 const ACTIVE_FPS = 60;
@@ -26,8 +26,8 @@ export interface WindowBox {
 }
 
 export interface InteractionHandlers {
-  /** A click that was not a drag, in window CSS pixels. */
-  onTap: (x: number, y: number) => void;
+  /** A click on the model that was not a drag; `fy` is its height on the model, 0 = top. */
+  onTap: (fy: number) => void;
   /** Moves the window; called at most once per frame while dragging. */
   moveTo: (x: number, y: number) => void;
   onDragEnd: () => void;
@@ -80,7 +80,7 @@ export class Interaction {
       canvas.classList.remove("grabbing");
       if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
       if (p.dragging) this.handlers.onDragEnd();
-      else if (e.type === "pointerup") this.handlers.onTap(e.clientX, e.clientY);
+      else if (e.type === "pointerup") this.handlers.onTap(e.offsetY / canvas.clientHeight);
     };
     canvas.addEventListener("pointerup", end);
     canvas.addEventListener("pointercancel", end);
@@ -109,17 +109,18 @@ export class Interaction {
     model.sway += this.swayVelocity * dt;
     if (Math.abs(model.sway) < 1e-4 && Math.abs(this.swayVelocity) < 1e-4) model.sway = 0;
 
-    const { width: w, height: h } = this.box;
+    // Gaze and proximity are measured on the model, which sits below the speech-bubble area.
+    const { x, y, w, h } = this.onModel();
     // Far away the gaze is already saturated, so smooth tracking only matters near the pet.
-    const near = Math.hypot(this.cursor.x - w / 2, this.cursor.y - h / 2) < h * 1.5;
+    const near = Math.hypot(x - w / 2, y - h / 2) < h * 1.5;
     const active = !!this.press || model.sway !== 0 || (near && now - this.lastCursorChange < ACTIVE_MS);
     this.stage.maxFps = active ? ACTIVE_FPS : IDLE_FPS;
 
     const reach = h * 0.5;
-    model.lookAt(Math.tanh((this.cursor.x - w / 2) / reach), Math.tanh((h * FACE_Y - this.cursor.y) / reach));
+    model.lookAt(Math.tanh((x - w / 2) / reach), Math.tanh((h * FACE_Y - y) / reach));
   }
 
-  /** Frame hook: decide click-through from the pixel under the cursor. */
+  /** Frame hook: decide click-through from what is under the cursor (model pixel or UI). */
   afterDraw(): void {
     const { x, y } = this.cursor;
     const inside = x >= 0 && y >= 0 && x < this.box.width && y < this.box.height;
@@ -127,11 +128,18 @@ export class Interaction {
     else if (!inside) this.hit = false;
     else if (this.cursorDirty || ++this.framesSinceHitTest >= HIT_RECHECK_FRAMES) {
       // readPixels stalls the GPU pipeline, so only look when the answer may have changed.
-      this.hit = this.stage.alphaAt(x, y) > HIT_ALPHA;
+      const m = this.onModel();
+      this.hit = !!document.elementFromPoint(x, y)?.closest(".ui") || this.stage.alphaAt(m.x, m.y) > HIT_ALPHA;
       this.framesSinceHitTest = 0;
     }
     this.cursorDirty = false;
     this.setIgnore(!this.hit);
+  }
+
+  /** The cursor in model-canvas coordinates, with the canvas size. */
+  private onModel(): { x: number; y: number; w: number; h: number } {
+    const c = this.stage.canvas;
+    return { x: this.cursor.x - c.offsetLeft, y: this.cursor.y - c.offsetTop, w: c.clientWidth, h: c.clientHeight };
   }
 
   private setCursor(x: number, y: number): void {

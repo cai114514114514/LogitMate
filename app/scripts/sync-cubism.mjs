@@ -11,7 +11,7 @@ const sdk = join(root, "vendor/cubism");
 const core = join(sdk, "Core/live2dcubismcore.min.js");
 if (!existsSync(core)) {
   console.error(
-    "找不到 vendor/cubism/Core。请在 https://www.live2d.com/sdk/download/web/ 同意协议后下载 Cubism SDK for Web 5，解压为 vendor/cubism。",
+    "vendor/cubism/Core not found. Download Cubism SDK for Web 5 from https://www.live2d.com/sdk/download/web/ (accepting Live2D's license) and unzip it as app/vendor/cubism.",
   );
   process.exit(1);
 }

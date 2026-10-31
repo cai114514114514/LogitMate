@@ -1,64 +1,65 @@
-# LogitMate 产品需求（PRD）
+# LogitMate — Product Requirements
 
-> 一句话：**任何 Live2D 模型拖进来都能活过来**——会看你、会说话、有记忆、懂情绪、能帮你干活。
+> In one line: **drop in any Live2D model and it comes alive** — it watches you, talks, remembers, has moods, and gets things done.
 
-## 1. 为什么做
+## 1. Why
 
-现有桌宠各有短板（2026-10 调研）：
+Existing desktop companions each fall short (survey, October 2026):
 
-| 产品 | 强项 | 短板 |
+| Product | Strengths | Gaps |
 | --- | --- | --- |
-| AIRI（开源，活跃） | 多模型提供商、看屏幕、社区集成 | 偏 VTuber 平台，桌面体验一般 |
-| Open-LLM-VTuber | 语音对话 + Live2D | v1 冻结，v2 重写中 |
-| Desktop Mate | 角色精致、DLC 生态 | 3D 专用，AI/屏幕感知弱，macOS 仅 beta |
-| Lotaria / AIvy / CielChan | 屏幕感知 | 只能用自家模型 |
+| AIRI (open source, active) | Many model providers, screen awareness, community integrations | A VTuber platform first; the desktop experience is average |
+| Open-LLM-VTuber | Voice chat with Live2D | v1 frozen, v2 rewrite in planning |
+| Desktop Mate | Polished characters, DLC ecosystem | 3D only, weak AI and screen awareness, macOS still in beta |
+| Lotaria / AIvy / CielChan | Screen awareness | Only their own characters |
 
-**空位**：
-1. 真正通用的 Live2D 导入：自动理解任何模型的表情和动作是什么意思。
-2. 原生级 Mac 体验：像素级点击穿透、坐在窗口上、出现在所有桌面空间。
-3. 有"自己生活"的角色，不只是一个聊天框。
-4. 隐私优先的屏幕感知，以及通过 MCP 真正做事的能力。
+**The opening:**
+1. Truly universal Live2D import: understand what any model's expressions and motions *mean*, automatically.
+2. A native-grade Mac experience: per-pixel click-through, sitting on windows, present on every Space.
+3. A character with a life of its own, not just a chat box.
+4. Privacy-first screen awareness, and real actions through MCP.
 
-## 2. 核心体验
+## 2. Core experience
 
-1. **活着**：呼吸、眨眼、待机动作；眼睛和头跟随全局鼠标；拖拽时身体随惯性倾斜，头发裙子由物理摆动；摸头、戳身体有不同反应；久不理会会无聊，深夜会犯困。
-2. **会说话**：对话气泡 + 流式输出；回复中嵌入情绪标记，实时切换表情（爱心眼、脸红、流冷汗、圈圈眼……）和动作。
-3. **有声音**：TTS 配合 A/I/U/E/O 元音口型；按住快捷键说话（ASR），以后支持唤醒词。
-4. **记得你**：三层记忆——对话短期记忆、事件摘要、用户画像；每晚"做梦"整理记忆。
-5. **懂你在干嘛**：默认只读前台 App 名和窗口标题，截图须显式开启。编译失败时安慰你，开会时保持安静，听歌时跟着晃。
-6. **能帮你干活**：作为 MCP Host 接入日程、文件、Shell、浏览器等工具；有副作用的操作一律弹窗确认。
-7. **通用模型 + 社区**：拖入任意模型文件夹即可自动生成"模型档案"；LLM 给表情和动作打语义标签，用户可以改。分享的 `.petprofile` 只包含人设、语义映射和原模型的下载链接，**不包含模型文件**。
+1. **Alive** — breathing, blinking, idle motion; eyes and head follow the global cursor; dragging tilts the body with inertia while physics swings hair and skirt; head pats and body taps get different reactions; gets bored when ignored and sleepy late at night.
+2. **Talks** — a speech bubble with streaming replies; emotion tags embedded in replies switch expressions (heart eyes, blush, cold sweat, dizzy eyes…) and motions in real time.
+3. **Has a voice** — TTS with A/I/U/E/O vowel lip sync; push-to-talk ASR, wake word later.
+4. **Remembers** — three tiers: short-term conversation, episode summaries, a user profile; a nightly "dream" pass consolidates memory.
+5. **Knows what you're doing** — by default only the frontmost app name and window title; screenshots are opt-in. Comforts you when a build fails, stays quiet in meetings, bobs along to music.
+6. **Gets things done** — an MCP host for calendar, files, shell, browser; every side-effecting action asks first.
+7. **Universal models + community** — drop a model folder in to get a model profile; an LLM labels expressions and motions semantically, and you can edit the labels. A shared `.petprofile` holds persona, semantic mapping and the original download link — **never the model files**.
 
-## 3. 原创点子
+## 3. Original ideas
 
-- **窗口栖息**：读取窗口位置，角色能坐在窗口上沿，窗口移动时跟着晃。
-- **情绪引擎**：mood / energy / affection 三轴状态机，决定待机行为和主动搭话的频率，不调用 LLM 也有个性。
-- **表情语义自动映射**：根据 cdi3 参数名、exp3 文件名和可选的截图，让 LLM 推断"这个表情等于害羞"，任何模型零配置可用。
-- **隐私仪表盘**：实时显示她看到了什么、记住了什么，可以一键遗忘。
+- **Window perching** — reads window frames so the character can sit on a window's top edge and sway when it moves.
+- **Emotion engine** — a mood / energy / affection state machine drives idle behaviour and how often she speaks up, so she has personality even without the LLM.
+- **Automatic expression semantics** — from cdi3 parameter names, exp3 file names and optional snapshots, an LLM infers "this expression = shy", so any model works with zero setup.
+- **Privacy dashboard** — shows live what she has seen and remembered, with one-click forgetting.
 
-## 4. 原则
+## 4. Principles
 
-- **尊重模型作者**：只读本地文件，不复制、不上传、不打包模型；"关于"里提示用户遵守模型条款并署名。
-- **尊重 Live2D 授权**：Cubism SDK 由用户在官网同意协议后自行下载，不进 git。
-- **隐私默认关闭**：任何超出"前台 App 名"的感知都要用户主动开启，并且随时可见、可撤销。
-- **不打扰**：主动发言有频率上限；全屏和会议时自动静音。
+- **Respect model authors** — read local files only; never copy, upload or bundle models. "About" reminds users to follow each model's terms and credit its creators.
+- **Respect the Live2D license** — users download the Cubism SDK themselves after accepting Live2D's terms; it never enters git.
+- **Privacy off by default** — anything beyond the frontmost app name is opt-in, always visible and revocable.
+- **Don't intrude** — proactive speech is rate-limited and muted in full-screen apps and meetings.
+- **Secrets stay out of the webview** — API keys live in the macOS Keychain and are only used by the Rust side.
 
-## 5. 里程碑
+## 5. Milestones
 
-| 阶段 | 内容 | 状态 |
+| Stage | Scope | Status |
 | --- | --- | --- |
-| M0 | 调研、文档、Tauri 工程、Cubism SDK | ✅ |
-| M1 | 透明窗口渲染、注视、穿透、拖拽、点击反应、托盘、ModelAdapter v1 | ✅ 可演示 |
-| M2 | 对话气泡、DeepSeek 流式、情绪标记→表情、记忆 v1、情绪引擎 v1 | 下一步 |
-| M3 | TTS + 元音口型、按键说话 | |
-| M4 | 拖拽导入任意模型、LLM 语义打标、模型库、Cubism 2 | |
-| M5 | 前台感知、可选视觉、窗口栖息、MCP 工具 | |
-| M6 | `.petprofile` 分享 | |
+| M0 | Research, docs, Tauri project, Cubism SDK | ✅ |
+| M1 | Transparent rendering, gaze, click-through, drag, tap reactions, tray, ModelAdapter v1 | ✅ |
+| M2 | Speech bubble, streaming DeepSeek chat, emotion tags → expressions, memory v1, emotion engine v1 | ✅ |
+| M3 | TTS + vowel lip sync, push-to-talk | |
+| M4 | Drag-and-drop import of any model, LLM semantic labelling, model library, Cubism 2 | |
+| M5 | Frontmost-app awareness, optional vision, window perching, MCP tools | |
+| M6 | `.petprofile` sharing | |
 
-## 6. 样例模型：DeepSeek-chan
+## 6. Sample model: DeepSeek-chan
 
-- Cubism 5（moc3 版本 5），509 个参数，带 VBridger 元音口型和 ARKit 风格面部参数。
-- model3.json 里没有登记表情和动作：23 个 exp3 文件放在 `Exp3/`，8 个 motion3 文件放在 `Animation/`，标签来自 `大肥鱼.vtube.json` 的热键。
-- 49 个裁剪遮罩，需要 2 张遮罩纹理（1 张最多 36 个）。
-- 贴图为 5 张 4096×8192，按显示尺寸缩小后约占 80 MB 显存。
-- 条款：免费模型，禁止再分发和打包进付费产品，公开使用需署名——插画与 PSD 拆分 Kamiya Ryoko，Live2D 制作 霓虹猫_NeonNeko。
+- Cubism 5 (moc3 version 5), 509 parameters, VBridger vowel shapes and ARKit-style face parameters.
+- model3.json declares no expressions or motions: 23 exp3 files live in `Exp3/` and 8 motion3 files in `Animation/`, labelled by the hotkeys in `大肥鱼.vtube.json`.
+- 49 clipping masks, so two mask textures (one holds at most 36).
+- Five 4096×8192 textures, about 80 MB of VRAM after downscaling to display size.
+- Terms: free model; no redistribution or bundling into paid products; credit required when used publicly — illustration and PSD by Kamiya Ryoko, Live2D rigging by 霓虹猫_NeonNeko.

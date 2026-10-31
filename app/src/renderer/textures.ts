@@ -23,7 +23,7 @@ export async function loadTexture(gl: WebGL2RenderingContext, url: string, scale
   const blob = await res.blob();
 
   const size = await pngSize(blob);
-  const options: ImageBitmapOptions = { premultiplyAlpha: "none", colorSpaceConversion: "none" };
+  const options: ImageBitmapOptions = { premultiplyAlpha: "premultiply", colorSpaceConversion: "none" };
   if (size) {
     const maxSide = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
     const s = Math.min(1, scale, maxSide / Math.max(size[0], size[1]));
@@ -33,14 +33,9 @@ export async function loadTexture(gl: WebGL2RenderingContext, url: string, scale
       options.resizeQuality = "high";
     }
   }
+  // Decoded straight to premultiplied alpha, which the renderer expects (setIsPremultipliedAlpha).
   const bitmap = await createImageBitmap(blob, options);
-  // WebKit uploads ImageBitmaps decoded from PNG with straight alpha whatever premultiplyAlpha says,
-  // so go through a 2D canvas: it stores premultiplied pixels, and canvas uploads honour
-  // UNPACK_PREMULTIPLY_ALPHA_WEBGL in every engine.
-  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-  canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
   const { width, height } = bitmap;
-  bitmap.close();
 
   const texture = gl.createTexture()!;
   gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -48,12 +43,10 @@ export async function loadTexture(gl: WebGL2RenderingContext, url: string, scale
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
-  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
   gl.generateMipmap(gl.TEXTURE_2D);
   gl.bindTexture(gl.TEXTURE_2D, null);
 
-  canvas.width = canvas.height = 0;
+  bitmap.close();
   return { texture, width, height, sourceWidth: size?.[0] ?? width, sourceHeight: size?.[1] ?? height };
 }

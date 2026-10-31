@@ -11,6 +11,13 @@ pub struct Settings {
     /// Window position in logical pixels.
     pub x: Option<f64>,
     pub y: Option<f64>,
+    /// What she calls herself; defaults to the model's name.
+    pub character_name: Option<String>,
+    /// Extra persona text appended to the system prompt.
+    pub persona: Option<String>,
+    /// OpenAI-compatible endpoint; defaults to DeepSeek.
+    pub llm_base_url: Option<String>,
+    pub llm_model: Option<String>,
 }
 
 pub struct SettingsStore {
@@ -51,7 +58,13 @@ mod tests {
         let path = dir.join("settings.json");
         assert_eq!(SettingsStore::load(path.clone()).get(), Settings::default());
 
-        let s = Settings { model_path: Some("/m/a.model3.json".into()), height: Some(640.0), x: Some(10.0), y: None };
+        let s = Settings {
+            model_path: Some("/m/a.model3.json".into()),
+            height: Some(640.0),
+            x: Some(10.0),
+            persona: Some("话少但温柔".into()),
+            ..Default::default()
+        };
         SettingsStore::load(path.clone()).set(s.clone()).unwrap();
         assert_eq!(SettingsStore::load(path.clone()).get(), s);
 

@@ -2,22 +2,37 @@ import "./log";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { currentMonitor, getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
-import { message, open } from "@tauri-apps/plugin-dialog";
+import { ask, message, open } from "@tauri-apps/plugin-dialog";
+import { Companion } from "./behavior/companion";
 import { Interaction, type WindowBox } from "./behavior/interaction";
+import { Mood } from "./behavior/mood";
 import { Reactions } from "./behavior/reactions";
+import { ChatSession } from "./brain/chat";
+import { buildExpressionMap } from "./brain/expressions";
+import { systemPrompt } from "./brain/prompt";
 import { readModelSource } from "./model/loader";
 import { PetModel } from "./renderer/petModel";
 import { Stage, startCubism } from "./renderer/stage";
+import { ChatUI } from "./ui/chatUi";
 
 interface Settings {
   modelPath?: string | null;
   height?: number | null;
   x?: number | null;
   y?: number | null;
+  characterName?: string | null;
+  persona?: string | null;
 }
 
+/** Model heights for the Size menu, in logical pixels. */
 const SIZES: Record<string, number> = { "size-s": 420, "size-m": 600, "size-l": 820 };
+/** Room above the head for the speech bubble and input. */
+const TALK_HEIGHT = 170;
+/** Narrow models still get a usable bubble. */
+const MIN_WIDTH = 300;
 const MARGIN = 24;
+/** Greet again after being away this long. */
+const GREET_AFTER_HOURS = 6;
 
 const win = getCurrentWindow();
 const toastEl = document.getElementById("toast")!;
@@ -30,35 +45,38 @@ function toast(text: string, ms = 4000): void {
 
 async function pickModel(): Promise<string | null> {
   const path = await open({
-    title: "选择 Live2D 模型（*.model3.json）",
+    title: "Choose a Live2D model (*.model3.json)",
     multiple: false,
     directory: false,
-    filters: [{ name: "Live2D 模型", extensions: ["json"] }],
+    filters: [{ name: "Live2D model", extensions: ["json"] }],
   });
   if (!path) return null;
   if (!path.toLowerCase().endsWith(".model3.json")) {
-    await message("请选择以 .model3.json 结尾的文件。", { title: "LogitMate", kind: "warning" });
+    await message("Please choose a file ending in .model3.json.", { title: "LogitMate", kind: "warning" });
     return null;
   }
   return path;
 }
 
-/** Bottom-right of the screen's usable area, in logical pixels. */
-async function defaultPosition(width: number, height: number): Promise<{ x: number; y: number }> {
+/** Keeps the window on the screen's usable area; with no position yet, the bottom-right corner. */
+async function placeOnScreen(box: WindowBox, wanted: { x?: number | null; y?: number | null }): Promise<void> {
   const mon = await currentMonitor();
-  if (!mon) return { x: 100, y: 100 };
+  if (!mon) return;
   const area = mon.workArea ?? { position: mon.position, size: mon.size };
   const s = mon.scaleFactor;
-  return {
-    x: (area.position.x + area.size.width) / s - width - MARGIN,
-    y: (area.position.y + area.size.height) / s - height,
-  };
+  const left = area.position.x / s;
+  const top = area.position.y / s;
+  const right = left + area.size.width / s;
+  const bottom = top + area.size.height / s;
+  const x = wanted.x ?? right - box.width - MARGIN;
+  const y = wanted.y ?? bottom - box.height;
+  box.x = Math.min(Math.max(x, left), right - box.width);
+  box.y = Math.min(Math.max(y, top), bottom - box.height);
 }
 
 async function main(): Promise<void> {
   const t0 = performance.now();
   const step = (what: string) => console.info(`[pet] ${what} +${Math.round(performance.now() - t0)}ms`);
-  step("boot");
   // Show the (still empty, transparent, click-through) window right away: WebKit throttles
   // hidden webviews, which stalls loading.
   await invoke("set_ignore_cursor", { ignore: true });
@@ -72,16 +90,16 @@ async function main(): Promise<void> {
   let modelPath = settings.modelPath ?? null;
   if (!modelPath) {
     await invoke("set_ignore_cursor", { ignore: false });
-    toast("请选择一个 Live2D 模型", 0);
+    toast("Choose a Live2D model to begin", 0);
     modelPath = await pickModel();
-    if (!modelPath) return toast("没有选择模型，可从菜单栏图标重新选择。", 0);
+    if (!modelPath) return toast("No model chosen. Pick one from the menu bar icon.", 0);
     save({ modelPath });
   }
 
   startCubism();
-  const stage = new Stage(document.getElementById("stage") as HTMLCanvasElement);
+  const canvas = document.getElementById("stage") as HTMLCanvasElement;
+  const stage = new Stage(canvas);
   const source = await readModelSource(modelPath);
-  step("model folder read");
   const dpr = window.devicePixelRatio || 1;
   const model = await PetModel.load(stage.gl, source.normalized, {
     url: source.url,
@@ -93,17 +111,60 @@ async function main(): Promise<void> {
   stage.model = model;
   step("model loaded");
 
-  const height = settings.height ?? SIZES["size-m"];
-  const box: WindowBox = { x: 0, y: 0, width: Math.round(height * model.aspect()), height };
-  const fallback = await defaultPosition(box.width, box.height);
-  box.x = settings.x ?? fallback.x;
-  box.y = settings.y ?? fallback.y;
+  // Window = speech-bubble area on top of the model.
+  const box: WindowBox = { x: 0, y: 0, width: 0, height: 0 };
+  const talk = document.getElementById("talk")!;
+  const layout = (modelHeight: number) => {
+    const modelWidth = Math.round(modelHeight * model.aspect());
+    box.width = Math.max(modelWidth, MIN_WIDTH);
+    box.height = modelHeight + TALK_HEIGHT;
+    Object.assign(canvas.style, {
+      width: `${modelWidth}px`,
+      height: `${modelHeight}px`,
+      left: `${(box.width - modelWidth) / 2}px`,
+      top: `${TALK_HEIGHT}px`,
+    });
+    talk.style.height = `${TALK_HEIGHT}px`;
+  };
+  layout(settings.height ?? SIZES["size-m"]);
+  await placeOnScreen(box, settings);
   await win.setSize(new LogicalSize(box.width, box.height));
   await win.setPosition(new LogicalPosition(box.x, box.y));
 
+  const profile = model.normalized.profile;
+  const map = buildExpressionMap(profile);
+  const mood = new Mood();
   const reactions = new Reactions(model);
+  const ui = new ChatUI();
+  const chat = new ChatSession(async () =>
+    systemPrompt({
+      name: settings.characterName || profile.name,
+      persona: settings.persona,
+      facts: await invoke<string[]>("memory_facts", { limit: 40 }),
+      moodLine: mood.describe(),
+      emotions: [...map.emotions.keys()],
+      actions: [...map.actions.keys()],
+      now: new Date(),
+      locale: navigator.language,
+    }),
+  );
+  const companion = new Companion({ chat, ui, reactions, mood, map });
+
+  ui.onWantFocus = () => win.setFocus();
+  ui.onSubmit = (text) => void companion.talk(text);
+  canvas.addEventListener("dblclick", () => void ui.openInput());
+
   const interaction = new Interaction(stage, box, {
-    onTap: (_x, y) => reactions.tap(y / box.height),
+    onTap: (fy) => {
+      companion.noteInteraction();
+      if (fy < 0.32) {
+        mood.onPat();
+        reactions.pat();
+      } else {
+        mood.touch();
+        reactions.gesture();
+      }
+    },
     moveTo: (x, y) => {
       box.x = x;
       box.y = y;
@@ -119,52 +180,81 @@ async function main(): Promise<void> {
 
   await listen<string>("pet://menu", async ({ payload: id }) => {
     if (id in SIZES) {
-      const h = SIZES[id];
-      const w = Math.round(h * model.aspect());
+      const oldWidth = box.width;
+      const oldBottom = box.y + box.height;
+      layout(SIZES[id]);
       // Keep the feet where they are.
-      box.x += (box.width - w) / 2;
-      box.y += box.height - h;
-      Object.assign(box, { width: w, height: h });
-      await win.setSize(new LogicalSize(w, h));
+      box.x += (oldWidth - box.width) / 2;
+      box.y = oldBottom - box.height;
+      await win.setSize(new LogicalSize(box.width, box.height));
       await win.setPosition(new LogicalPosition(box.x, box.y));
-      save({ height: h, x: box.x, y: box.y });
+      save({ height: SIZES[id], x: box.x, y: box.y });
+    } else if (id === "chat") {
+      await ui.openInput();
     } else if (id === "pick-model") {
       const path = await pickModel();
       if (path) {
         save({ modelPath: path });
         location.reload();
       }
+    } else if (id === "forget") {
+      const sure = await ask("Forget all conversations and everything she has learned about you?", {
+        title: "Forget Everything",
+        kind: "warning",
+        okLabel: "Forget",
+        cancelLabel: "Cancel",
+      });
+      if (sure) {
+        await invoke("memory_forget_all");
+        mood.reset();
+        toast("Memory cleared.");
+      }
     } else if (id === "about") {
-      await message(aboutText(source.dir, model), { title: "关于模型", kind: "info" });
+      await message(aboutText(source.dir, model, map), { title: "About This Model", kind: "info" });
     }
   });
 
   stage.start();
   await win.show();
-  const p = model.normalized.profile;
   console.info(
-    `[pet] ${p.name}: ${p.expressions.length} expressions, ${p.motions.length} motions, ` +
-      `textures ${(model.textureMemoryBytes / 2 ** 20).toFixed(0)} MB, sources: ${p.sources.join(", ")}`,
+    `[pet] ${profile.name}: ${profile.expressions.length} expressions, ${profile.motions.length} motions, ` +
+      `emotions ${[...map.emotions.keys()].join("/")}, actions ${[...map.actions.keys()].join("/")}, ` +
+      `textures ${(model.textureMemoryBytes / 2 ** 20).toFixed(0)} MB`,
   );
+
+  setInterval(() => companion.tick(30), 30_000);
+  if (import.meta.env.DEV) {
+    // Lets scripts drive a chat turn: echo "hi" > /tmp/logitmate-say.txt
+    setInterval(async () => {
+      const text = await invoke<string | null>("debug_take_input");
+      if (text) void companion.talk(text);
+    }, 1000);
+  }
+  const firstRun = mood.state.affection === 0 && (await invoke<unknown[]>("memory_recent", { limit: 1 })).length === 0;
+  const away = mood.touch();
+  if ((firstRun || away > GREET_AFTER_HOURS) && (await invoke<boolean>("has_api_key"))) {
+    setTimeout(() => void companion.greet(away, firstRun), 1200);
+  }
 }
 
-function aboutText(dir: string, model: PetModel): string {
+function aboutText(dir: string, model: PetModel, map: ReturnType<typeof buildExpressionMap>): string {
   const p = model.normalized.profile;
   const c = p.capabilities;
   const yes = (b: boolean) => (b ? "✓" : "—");
   return [
-    `模型：${p.name}`,
-    `目录：${dir}`,
-    `表情 ${p.expressions.length} 个 · 动作 ${p.motions.length} 个`,
-    `眨眼 ${yes(c.eyeBlink)}  物理 ${yes(c.physics)}  视线 ${yes(c.look)}  元音口型 ${yes(c.vowels)}  ARKit ${yes(c.arkit)}`,
-    `贴图显存约 ${(model.textureMemoryBytes / 2 ** 20).toFixed(0)} MB`,
+    `Model: ${p.name}`,
+    `Folder: ${dir}`,
+    `${p.expressions.length} expressions · ${p.motions.length} motions`,
+    `Blink ${yes(c.eyeBlink)}  Physics ${yes(c.physics)}  Gaze ${yes(c.look)}  Vowel lip sync ${yes(c.vowels)}  ARKit ${yes(c.arkit)}`,
+    `Emotions she can show: ${[...map.emotions.keys()].join(", ") || "none"}`,
+    `Texture memory: about ${(model.textureMemoryBytes / 2 ** 20).toFixed(0)} MB`,
     "",
-    "模型版权归原作者所有。LogitMate 只读取本地文件，不复制、不上传模型；公开使用前请阅读模型附带的使用条款并注明作者。",
+    "The model belongs to its creators. LogitMate only reads it from your disk and never copies or uploads it; read the terms that came with the model and credit its creators when you share it.",
   ].join("\n");
 }
 
 main().catch(async (e) => {
   console.error(e);
   await win.show();
-  toast(`加载失败：${e instanceof Error ? e.message : String(e)}`, 0);
+  toast(`Failed to load: ${e instanceof Error ? e.message : String(e)}`, 0);
 });

@@ -28,7 +28,7 @@ export async function readModelSource(model3Path: string): Promise<ModelSource> 
   };
 
   const model3 = await readJson<Model3Json>(listing.model3File);
-  if (!model3?.FileReferences?.Moc) throw new Error(`${listing.model3File} 不是有效的 model3.json`);
+  if (!model3?.FileReferences?.Moc) throw new Error(`${listing.model3File} is not a valid model3.json`);
   const vtubeFile = listing.files.find((f) => f.toLowerCase().endsWith(".vtube.json"));
   const [vtube, cdi] = await Promise.all([
     readJson<VtubeJson>(vtubeFile),

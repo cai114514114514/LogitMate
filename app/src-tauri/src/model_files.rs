@@ -19,9 +19,9 @@ pub fn list(model3_path: &str) -> Result<ModelFiles, String> {
     let path = Path::new(model3_path);
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
     if !path.is_file() || !name.to_lowercase().ends_with(".model3.json") {
-        return Err(format!("不是 model3.json 文件：{model3_path}"));
+        return Err(format!("not a model3.json file: {model3_path}"));
     }
-    let dir = path.parent().ok_or("模型文件没有上级目录")?;
+    let dir = path.parent().ok_or("model file has no parent folder")?;
     let mut files = Vec::new();
     walk(dir, dir, 0, &mut files);
     files.sort();
