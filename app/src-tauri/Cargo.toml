@@ -2,7 +2,9 @@
 name = "logitmate"
 version = "0.1.0"
 description = "LogitMate: a universal Live2D AI desktop companion"
-authors = ["you"]
+authors = ["cai114514114514"]
+license = "MIT"
+repository = "https://github.com/cai114514114514/LogitMate"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

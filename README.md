@@ -18,4 +18,11 @@ LOGITMATE_MODEL="/path/to/model.model3.json" pnpm tauri dev
 
 不设置 `LOGITMATE_MODEL` 时，首次启动会弹出文件选择框；之后可以在菜单栏图标里切换模型、调整大小、开关置顶。
 
-模型版权归原作者所有。LogitMate 只读取本地文件，不复制、不上传模型。
+## 许可证
+
+LogitMate 的源代码以 [MIT 协议](LICENSE) 开源。
+
+MIT 协议只覆盖本仓库里的代码，不包括：
+
+- **Live2D Cubism SDK**：Live2D 公司的专有软件，需要你自己在官网同意协议后下载。商业发布须遵守 Live2D 的 SDK 发布许可。
+- **Live2D 模型**：版权归各自的作者。LogitMate 只读取你本地的模型文件，不复制、不上传；公开使用前请阅读模型附带的条款并注明作者。
