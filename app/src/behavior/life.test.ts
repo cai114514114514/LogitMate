@@ -126,6 +126,22 @@ describe("Life", () => {
     expect(mouth).toBeGreaterThan(0.4);
   });
 
+  it("does not doze off on someone who is typing, and wakes when they type", () => {
+    const life = new Life(seeded(9));
+    life.energy = 0.3;
+    const events: string[] = [];
+    life.onEvent = (e) => events.push(e.type);
+    life.inputIdleMs = 2000;
+    for (let t = 0; t < 400; t += 1) life.update(1, away);
+    expect(events).not.toContain("dozed");
+    life.inputIdleMs = Infinity;
+    for (let t = 0; t < 400; t += 1) life.update(1, away);
+    expect(events).toContain("dozed");
+    life.inputIdleMs = 200;
+    life.update(0.1, away);
+    expect(events).toContain("woke");
+  });
+
   it("never dozes in a focus session", () => {
     const life = new Life(seeded(5));
     life.energy = 0.2;

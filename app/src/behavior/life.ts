@@ -332,6 +332,8 @@ export class Life {
   voice: { open: number; vowel: string } | null = null;
   /** Speech audio is playing or queued. */
   voiceBusy = false;
+  /** Milliseconds since the last keyboard or mouse input anywhere (someone typing is there too). */
+  inputIdleMs = Infinity;
   onEvent: (e: LifeEvent) => void = () => {};
 
   private t = 0;
@@ -431,6 +433,8 @@ export class Life {
       this.onEvent({ type: "dizzy" });
     }
     if (sense.petting || cursorActive) this.lastInteraction = Math.max(this.lastInteraction, t - p.stillMs / 1000);
+    // Typing counts as being there: she doesn't doze off on someone who is working.
+    this.lastInteraction = Math.max(this.lastInteraction, t - this.inputIdleMs / 1000);
 
     // Dozing off when nobody has been around for a while, waking when someone is.
     const quietFor = t - this.lastInteraction;
@@ -440,6 +444,8 @@ export class Life {
       this.onEvent({ type: "dozed" });
     } else if (this.dozing && cursorActive && p.stillMs < 300) {
       this.wake(p.near);
+    } else if (this.dozing && this.inputIdleMs < 1000) {
+      this.wake(false);
     }
     this.dozeLevel = ease(this.dozeLevel, this.dozing ? 1 : 0, dt, this.dozing ? 2.5 : 0.25);
 

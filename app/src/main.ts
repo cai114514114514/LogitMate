@@ -15,6 +15,7 @@ import { ChatSession } from "./brain/chat";
 import { buildExpressionMap, type ExpressionMap } from "./brain/expressions";
 import { learnExpressions, loadLearned, stillJpeg } from "./brain/labeler";
 import { isLookRequest } from "./brain/look";
+import { AWAY_MS, glanceGap, initialWatch, isPrivateApp, mayRemark, noteRemark, parseWatch, watchMessages } from "./brain/watch";
 import { systemPrompt } from "./brain/prompt";
 import { readModelSource } from "./model/loader";
 import { profileKey, type LearnedProfile } from "./model/semantics";
@@ -33,6 +34,7 @@ interface Settings {
   characterName?: string | null;
   persona?: string | null;
   speak?: boolean | null;
+  watch?: boolean | null;
 }
 
 /** Model heights for the Size menu, in logical pixels. */
@@ -410,6 +412,82 @@ async function main(): Promise<void> {
       );
     }
   };
+  // Watch Over Me (brain/watch.ts): opt-in glances at the screen, rarely a remark.
+  let watchState = initialWatch(Date.now());
+  let glancing = false;
+  const peek = document.getElementById("peek")!;
+  const watchDecide = async (image: string, app: string | null) => {
+    const reply = await invoke<string>("llm_complete", {
+      messages: watchMessages(
+        {
+          name: settings.characterName || profile.name,
+          persona: settings.persona,
+          zh,
+          now: new Date(),
+          app,
+          focusTask: focus?.task,
+          recent: watchState.recent,
+          emotions: [...map.emotions.keys()],
+        },
+        image,
+      ),
+      json: true,
+      vision: true,
+    });
+    const d = parseWatch(reply);
+    if (import.meta.env.DEV) console.info(`[pet] watch: ${d?.say ? `${d.urgent ? "(urgent) " : ""}${d.line}` : "quiet"}`);
+    if (!d || !mayRemark(watchState, d, Date.now()) || chat.busy) return;
+    noteRemark(watchState, d.line, Date.now());
+    companion.say(d.line, d.emotion);
+  };
+  const watchTick = async () => {
+    const now = Date.now();
+    if (settings.watch !== true || glancing || now < watchState.nextGlance) return;
+    watchState.nextGlance = now + glanceGap();
+    // Not while they talk to her, she speaks, sleeps, or nobody is at the computer.
+    if (chat.busy || ui.inputOpen || speaker.busy || auditioning || life.asleep || life.inputIdleMs > AWAY_MS) return;
+    const app = await invoke<FrontApp | null>("front_app").catch(() => null);
+    if (isPrivateApp(app)) return;
+    const screen = await screenRect();
+    if (!screen) return;
+    glancing = true;
+    peek.hidden = false;
+    const face = { x: box.x + box.width / 2, y: box.y + TALK_HEIGHT + 80 };
+    life.glance(
+      Math.tanh((screen.x + screen.width / 2 - face.x) / 400),
+      Math.tanh((face.y - (screen.y + screen.height / 2)) / 400),
+      2,
+    );
+    try {
+      const jpeg = await invoke<string>("screen_capture", screen);
+      peek.hidden = true;
+      await watchDecide(`data:image/jpeg;base64,${jpeg}`, app?.name ?? null);
+    } catch (e) {
+      if (String(e).includes("NO_SCREEN_ACCESS")) {
+        save({ watch: false });
+        void invoke("set_watch_menu", { checked: false });
+        ui.say(zh ? "我还没有看屏幕的权限，先把陪伴观察关掉啦。" : "I can't see your screen yet, so I turned Watch Over Me off.");
+      } else console.warn("[pet] watch", e);
+    } finally {
+      peek.hidden = true;
+      glancing = false;
+    }
+  };
+  setInterval(() => void watchTick(), 15_000);
+  // Typing counts as being there (for dozing and for glances).
+  setInterval(async () => {
+    life.inputIdleMs =
+      (await invoke<number>("user_idle").catch((e) => {
+        if (import.meta.env.DEV && !idleLogged) console.warn("[pet] user_idle", e);
+        return Infinity;
+      })) * 1000;
+    if (import.meta.env.DEV && !idleLogged) {
+      idleLogged = true;
+      console.info(`[pet] input idle ${Math.round(life.inputIdleMs)} ms`);
+    }
+  }, 5000);
+  let idleLogged = false;
+
   ui.onSubmit = (text) => {
     life.noteInteraction();
     speaker.stop();
@@ -509,6 +587,21 @@ async function main(): Promise<void> {
       speaker.enabled = id === "speak-on" && (await ttsStatus()).available;
       if (!speaker.enabled) speaker.stop();
       if (id === "speak-on" && !speaker.enabled) await designVoice();
+    } else if (id === "watch-on") {
+      const yes = await ask(
+        zh
+          ? "开启陪伴观察？\n\n她会每隔 4–8 分钟看一眼你的屏幕（截图发给 DeepSeek 看，不保存），平时安静，只在你遇到报错、完成了事情、在看有趣的东西或熬夜时说一句。开会、共享屏幕、密码管理器在前台、或你不在电脑前时她不看。看的时候右上角会出现 👀。随时可以在菜单里关掉。"
+          : "Turn on Watch Over Me?\n\nEvery 4–8 minutes she glances at your screen (a screenshot sent to DeepSeek, never kept). She stays quiet unless you hit an error, finish something, are watching something fun, or work late. She never looks during meetings or screen sharing, with a password manager in front, or when you're away. 👀 shows while she looks. Turn it off here anytime.",
+        { title: zh ? "陪伴观察" : "Watch Over Me", okLabel: zh ? "开启" : "Turn On", cancelLabel: zh ? "算了" : "Not Now" },
+      );
+      if (!yes) return void invoke("set_watch_menu", { checked: false });
+      save({ watch: true });
+      watchState = initialWatch(Date.now());
+      watchState.nextGlance = Date.now() + 60_000;
+      toast(zh ? "陪伴观察已开启～" : "Watch Over Me is on~");
+    } else if (id === "watch-off") {
+      save({ watch: false });
+      toast(zh ? "陪伴观察已关闭。" : "Watch Over Me is off.");
     } else if (id === "look") {
       await lookAtScreen(zh ? "看看我的屏幕" : "Take a look at my screen.");
     } else if (id === "focus") {
@@ -568,6 +661,13 @@ async function main(): Promise<void> {
         const still = await stage.still(() => model.poseStill(null));
         const brief = await writeBrief(settings.characterName || profile.name, settings.persona, zh, stillJpeg(still)).catch((e) => String(e));
         console.info(`[pet] brief: ${JSON.stringify(brief)}`);
+        return;
+      }
+      // One glance decision on a prepared image instead of the screen: "/watchtest /tmp/logitmate-x.jpg"
+      const watchCmd = text?.match(/^\/watchtest\s+(\S+)$/);
+      if (watchCmd) {
+        const b64 = await invoke<string>("debug_read_image", { path: watchCmd[1] }).catch((e) => String(e));
+        await watchDecide(`data:image/jpeg;base64,${b64}`, "Terminal").catch((e) => console.warn(e));
         return;
       }
       // Checks the screenshot path without sending anything: saves /tmp/logitmate-shot.jpg.

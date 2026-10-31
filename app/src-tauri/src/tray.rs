@@ -1,6 +1,9 @@
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, Wry};
+
+/// The Watch Over Me item, so the webview can untick it when the user declines.
+pub struct WatchItem(pub CheckMenuItem<Wry>);
 
 /// Menu ids the webview handles itself (sizing, model choice, about).
 const FORWARDED: &[&str] = &["chat", "look", "focus", "voice", "agents", "size-s", "size-m", "size-l", "pick-model", "relearn", "forget", "about"];
@@ -11,6 +14,9 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let speak_on = app.state::<crate::settings::SettingsStore>().get().speak.unwrap_or(true);
     let speak = CheckMenuItem::with_id(app, "speak", "Speak Aloud", true, speak_on, None::<&str>)?;
     let voice = MenuItem::with_id(app, "voice", "Design Her Voice…", true, None::<&str>)?;
+    let watch_on = app.state::<crate::settings::SettingsStore>().get().watch.unwrap_or(false);
+    let watch = CheckMenuItem::with_id(app, "watch", "Watch Over Me", true, watch_on, None::<&str>)?;
+    app.manage(WatchItem(watch.clone()));
     let focus = MenuItem::with_id(app, "focus", "Focus With Me…", true, None::<&str>)?;
     let forget = MenuItem::with_id(app, "forget", "Forget Everything…", true, None::<&str>)?;
     let agents = MenuItem::with_id(app, "agents", "Coding Agents…", true, None::<&str>)?;
@@ -35,6 +41,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         &[
             &chat,
             &look,
+            &watch,
             &focus,
             &agents,
             &PredefinedMenuItem::separator(app)?,
@@ -63,6 +70,10 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
                 "quit" => app.exit(0),
                 "toggle" => {
                     let _ = if win.is_visible().unwrap_or(false) { win.hide() } else { win.show() };
+                }
+                "watch" => {
+                    let on = watch.is_checked().unwrap_or(false);
+                    let _ = win.emit("pet://menu", if on { "watch-on" } else { "watch-off" });
                 }
                 "speak" => {
                     let on = speak.is_checked().unwrap_or(true);

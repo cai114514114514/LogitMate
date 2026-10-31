@@ -24,6 +24,8 @@ pub struct Settings {
     pub speak: Option<bool>,
     /// Built-in MiMo voice when no voice has been designed for the model.
     pub tts_voice: Option<String>,
+    /// Watch Over Me: she glances at the screen now and then (opt-in, default off).
+    pub watch: Option<bool>,
 }
 
 pub struct SettingsStore {

@@ -23,3 +23,19 @@ pub fn frontmost() -> Option<FrontApp> {
 pub fn frontmost() -> Option<FrontApp> {
     None
 }
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGEventSourceSecondsSinceLastEventType(state: i32, event_type: u32) -> f64;
+}
+
+/// Seconds since the last keyboard or mouse input anywhere (no permission needed): whether
+/// someone is at the computer, even if they only type.
+pub fn idle_seconds() -> f64 {
+    #[cfg(target_os = "macos")]
+    // kCGEventSourceStateCombinedSessionState, kCGAnyInputEventType
+    return unsafe { CGEventSourceSecondsSinceLastEventType(0, u32::MAX) };
+    #[cfg(not(target_os = "macos"))]
+    0.0
+}

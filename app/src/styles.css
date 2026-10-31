@@ -205,3 +205,16 @@ body {
   line-height: 18px;
   cursor: pointer;
 }
+
+/* Shown while she glances at the screen (Watch Over Me), so looking is never hidden. */
+#peek {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--paper);
+  border: 1px solid var(--edge);
+  font-size: 13px;
+  pointer-events: none;
+}

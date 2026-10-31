@@ -290,6 +290,12 @@ fn front_app() -> Option<front_app::FrontApp> {
     front_app::frontmost()
 }
 
+/// Seconds since the last keyboard or mouse input.
+#[tauri::command]
+fn user_idle() -> f64 {
+    front_app::idle_seconds()
+}
+
 /// Brings an agent's terminal to the front. Only known terminals, by bundle id.
 #[tauri::command]
 fn focus_terminal(terminal: String) -> Result<(), String> {
@@ -318,6 +324,22 @@ fn debug_take_input() -> Option<String> {
     let text = std::fs::read_to_string(&path).ok()?;
     let _ = std::fs::remove_file(&path);
     Some(text.trim().to_string()).filter(|t| !t.is_empty())
+}
+
+/// Ticks or unticks Watch Over Me in the menu (the user may decline after ticking it).
+#[tauri::command]
+fn set_watch_menu(item: State<tray::WatchItem>, checked: bool) -> Result<(), String> {
+    item.0.set_checked(checked).map_err(|e| e.to_string())
+}
+
+/// Development only: a local JPEG as base64, to test screen glances with a prepared image.
+#[tauri::command]
+fn debug_read_image(path: String) -> Result<String, String> {
+    use base64::Engine;
+    if !cfg!(debug_assertions) || !path.starts_with("/tmp/logitmate-") {
+        return Err("not available".into());
+    }
+    std::fs::read(&path).map(|b| base64::engine::general_purpose::STANDARD.encode(b)).map_err(|e| e.to_string())
 }
 
 /// Frontend console output, mirrored to stdout.
@@ -357,11 +379,14 @@ pub fn run() {
             memory_facts,
             memory_forget_all,
             debug_take_input,
+            debug_read_image,
+            set_watch_menu,
             agents_status,
             agents_connect,
             agents_disconnect,
             focus_terminal,
             front_app,
+            user_idle,
             log
         ])
         .setup(|app| {

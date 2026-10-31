@@ -71,6 +71,22 @@ export class Companion {
     reactions.relax(LINGER_MS);
   }
 
+  /**
+   * A line she says on her own without asking the LLM (it was already decided, e.g. after a
+   * glance at the screen); not kept in the conversation. Skipped while the user is talking to her.
+   */
+  say(line: string, emotion: string | null): void {
+    const { chat, ui, reactions, map } = this.d;
+    if (chat.busy) return;
+    if (emotion) {
+      this.d.voiceEmotion?.(emotion);
+      const name = map.emotions.get(emotion);
+      if (name) reactions.express(name, 0);
+    }
+    ui.say(line);
+    reactions.relax(LINGER_MS + line.length * 90);
+  }
+
   /** A gesture the LLM asked for: the model's own motion if it has one, else a procedural one. */
   private act(action: string): void {
     const gesture = this.d.map.actions.get(action);
