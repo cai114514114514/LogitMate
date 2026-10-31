@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { currentMonitor, getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
 import { ask, message, open } from "@tauri-apps/plugin-dialog";
+import { AgentFace, type AgentEvent } from "./behavior/agentFace";
 import { Companion } from "./behavior/companion";
 import { Interaction, type WindowBox } from "./behavior/interaction";
 import { Mood } from "./behavior/mood";
@@ -31,6 +32,13 @@ const TALK_HEIGHT = 170;
 /** Narrow models still get a usable bubble. */
 const MIN_WIDTH = 300;
 const MARGIN = 24;
+interface HookStatus {
+  claudeInstalled: boolean;
+  claudeConnected: boolean;
+  codexInstalled: boolean;
+  codexConnected: boolean;
+}
+
 /** Greet again after being away this long. */
 const GREET_AFTER_HOURS = 6;
 
@@ -150,6 +158,25 @@ async function main(): Promise<void> {
   );
   const companion = new Companion({ chat, ui, reactions, mood, map });
 
+  // Agent Face: coding agents report through the Rust bridge; she reacts without intruding.
+  const agentFace = new AgentFace((r) => {
+    if (r.type === "thinking") {
+      const thinking = map.emotions.get("thinking");
+      if (!thinking || chat.busy) return;
+      if (r.on) reactions.express(thinking, 0);
+      else reactions.relax();
+    } else if (r.type === "emotion") {
+      const name = map.emotions.get(r.emotion);
+      if (name && !chat.busy) reactions.express(name, r.ms);
+    } else {
+      const terminal = r.terminal;
+      const jump = terminal ? () => void invoke("focus_terminal", { terminal }).catch((e) => console.warn(e)) : undefined;
+      void companion.remark(r.note, r.fallback, jump);
+    }
+  }, navigator.language.toLowerCase().startsWith("zh"));
+  await listen<AgentEvent>("agent://event", ({ payload }) => agentFace.handle(payload));
+  setInterval(() => agentFace.tick(), 1000);
+
   ui.onWantFocus = () => win.setFocus();
   ui.onSubmit = (text) => void companion.talk(text);
   canvas.addEventListener("dblclick", () => void ui.openInput());
@@ -191,6 +218,8 @@ async function main(): Promise<void> {
       save({ height: SIZES[id], x: box.x, y: box.y });
     } else if (id === "chat") {
       await ui.openInput();
+    } else if (id === "agents") {
+      await manageAgents();
     } else if (id === "pick-model") {
       const path = await pickModel();
       if (path) {
@@ -234,6 +263,44 @@ async function main(): Promise<void> {
   const away = mood.touch();
   if ((firstRun || away > GREET_AFTER_HOURS) && (await invoke<boolean>("has_api_key"))) {
     setTimeout(() => void companion.greet(away, firstRun), 1200);
+  }
+}
+
+async function manageAgents(): Promise<void> {
+  const st = await invoke<HookStatus>("agents_status");
+  if (!st.claudeInstalled && !st.codexInstalled) {
+    await message("No Claude Code or Codex configuration was found in your home folder.", { title: "Coding Agents", kind: "info" });
+    return;
+  }
+  const connected = st.claudeConnected || st.codexConnected;
+  const found = [st.claudeInstalled && "Claude Code", st.codexInstalled && "Codex"].filter(Boolean).join(" and ");
+  if (connected) {
+    const off = await ask(`LogitMate is connected to ${found}. Disconnect and restore your previous hook settings?`, {
+      title: "Coding Agents",
+      okLabel: "Disconnect",
+      cancelLabel: "Keep",
+    });
+    if (off) {
+      await invoke("agents_disconnect");
+      toast("Disconnected from coding agents.");
+    }
+    return;
+  }
+  const lines = [
+    `Connect LogitMate to ${found}? She will think along while they work, tell you when they need you, and cheer when long tasks finish.`,
+    "",
+    st.claudeInstalled ? "• Claude Code: adds one hook next to your existing ones in ~/.claude/settings.json." : "",
+    st.codexInstalled ? "• Codex: runs LogitMate's hook first, then your current notify command, unchanged." : "",
+    "",
+    "Only metadata is used (agent, project, tool, what it waits for), never your prompts or code. Both files are backed up first, and you can disconnect here anytime.",
+  ].filter((l, i, a) => l !== "" || a[i - 1] !== "");
+  const yes = await ask(lines.join("\n"), { title: "Coding Agents", okLabel: "Connect", cancelLabel: "Not Now" });
+  if (!yes) return;
+  try {
+    const after = await invoke<HookStatus>("agents_connect");
+    toast(`Connected: ${[after.claudeConnected && "Claude Code", after.codexConnected && "Codex"].filter(Boolean).join(", ")}`);
+  } catch (e) {
+    await message(`Could not connect: ${String(e)}`, { title: "Coding Agents", kind: "error" });
   }
 }
 

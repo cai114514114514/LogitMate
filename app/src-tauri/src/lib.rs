@@ -1,3 +1,5 @@
+mod agent_hooks;
+mod agents;
 mod cursor;
 mod llm;
 mod memory;
@@ -103,6 +105,43 @@ fn memory_forget_all(memory: State<Memory>) -> Result<(), String> {
     memory.forget_all().map_err(|e| e.to_string())
 }
 
+fn hook_paths() -> Result<agent_hooks::Paths, String> {
+    let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
+    Ok(agent_hooks::Paths::from_home(std::path::Path::new(&home)))
+}
+
+#[tauri::command]
+fn agents_status() -> Result<agent_hooks::HookStatus, String> {
+    Ok(agent_hooks::status(&hook_paths()?))
+}
+
+/// Adds LogitMate's hook next to existing ones (Claude Code) or chains it (Codex); backs files up first.
+#[tauri::command]
+fn agents_connect() -> Result<agent_hooks::HookStatus, String> {
+    agent_hooks::connect(&hook_paths()?)
+}
+
+#[tauri::command]
+fn agents_disconnect() -> Result<agent_hooks::HookStatus, String> {
+    agent_hooks::disconnect(&hook_paths()?)
+}
+
+/// Brings an agent's terminal to the front. Only known terminals, by bundle id.
+#[tauri::command]
+fn focus_terminal(terminal: String) -> Result<(), String> {
+    let bundle = match terminal.as_str() {
+        "Apple_Terminal" => "com.apple.Terminal",
+        "iTerm.app" => "com.googlecode.iterm2",
+        "vscode" => "com.microsoft.VSCode",
+        "ghostty" => "com.mitchellh.ghostty",
+        "WarpTerminal" => "dev.warp.Warp-Stable",
+        "WezTerm" => "com.github.wez.wezterm",
+        "Hyper" => "co.zeit.hyper",
+        _ => return Err(format!("unknown terminal: {terminal}")),
+    };
+    std::process::Command::new("open").args(["-b", bundle]).spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
 /// Development only: text in /tmp/logitmate-say.txt is taken (and the file removed) as if the user
 /// had typed it, so chat can be exercised from scripts. Release builds always return None.
 #[tauri::command]
@@ -142,6 +181,10 @@ pub fn run() {
             memory_facts,
             memory_forget_all,
             debug_take_input,
+            agents_status,
+            agents_connect,
+            agents_disconnect,
+            focus_terminal,
             log
         ])
         .setup(|app| {
@@ -154,6 +197,9 @@ pub fn run() {
             let data = app.path().app_data_dir()?;
             app.manage(Memory::open(&data.join("memory.db"))?);
             app.manage(ChatState::default());
+            if let Err(e) = agents::serve(app.handle().clone(), &data.join("agent-bridge.json")) {
+                eprintln!("agent bridge unavailable: {e}");
+            }
 
             tray::create(app.handle())?;
             cursor::spawn(app.handle().clone());

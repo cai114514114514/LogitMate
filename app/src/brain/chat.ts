@@ -40,9 +40,11 @@ export class ChatSession {
 
   /**
    * Sends `text` and streams the reply. With `hidden`, the text steers this one reply (e.g. "greet
-   * the user") without being stored as something the user said. Resolves with the visible reply.
+   * the user") without being stored as something the user said; with `store: false` the reply is
+   * not kept either (asides about agents should not crowd the conversation). Resolves with the
+   * visible reply.
    */
-  async send(text: string, handlers: TurnHandlers, opts: { hidden?: boolean } = {}): Promise<string> {
+  async send(text: string, handlers: TurnHandlers, opts: { hidden?: boolean; store?: boolean } = {}): Promise<string> {
     if (this.active) await invoke("chat_cancel");
     const id = this.nextId++;
     this.active = id;
@@ -79,7 +81,9 @@ export class ChatSession {
       await invoke("chat_stream", { id, messages });
       take(parser.flush());
       // Stored with tags, so later turns see how she has been expressing herself.
-      if (raw.trim() && this.active === id) await invoke("memory_append", { role: "assistant", content: raw });
+      if (raw.trim() && this.active === id && opts.store !== false) {
+        await invoke("memory_append", { role: "assistant", content: raw });
+      }
       return visible.trim();
     } catch (e) {
       const msg = String(e);

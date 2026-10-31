@@ -11,6 +11,7 @@ export class ChatUI {
   private input = document.getElementById("ask-input") as HTMLInputElement;
   private hideTimer = 0;
   private inputTimer = 0;
+  private bubbleAction: (() => void) | null = null;
 
   /** Called with what the user typed. */
   onSubmit: (text: string) => void = () => {};
@@ -18,6 +19,14 @@ export class ChatUI {
   onWantFocus: () => Promise<void> = async () => {};
 
   constructor() {
+    this.bubble.addEventListener("click", () => {
+      const action = this.bubbleAction;
+      if (!action) return;
+      this.bubbleAction = null;
+      this.bubble.classList.remove("actionable");
+      this.bubble.hidden = true;
+      action();
+    });
     this.form.addEventListener("submit", (e) => {
       e.preventDefault();
       const text = this.input.value.trim();
@@ -49,9 +58,14 @@ export class ChatUI {
     clearTimeout(this.inputTimer);
   }
 
-  /** Shows (or updates) the bubble; `streaming` keeps it open until `done()` is called. */
-  say(text: string, streaming = false): void {
+  /**
+   * Shows (or updates) the bubble; `streaming` keeps it open until `done()` is called.
+   * `onClick` makes the bubble clickable until it hides or another line replaces it.
+   */
+  say(text: string, streaming = false, onClick?: () => void): void {
     clearTimeout(this.hideTimer);
+    if (onClick !== undefined || !streaming) this.bubbleAction = onClick ?? null;
+    this.bubble.classList.toggle("actionable", !!this.bubbleAction);
     this.bubble.classList.toggle("thinking", text === "");
     this.text.textContent = text || "…";
     this.bubble.hidden = false;
@@ -63,7 +77,10 @@ export class ChatUI {
   done(): void {
     clearTimeout(this.hideTimer);
     const ms = Math.max(MIN_SHOW_MS, (this.text.textContent?.length ?? 0) * READ_MS_PER_CHAR);
-    this.hideTimer = window.setTimeout(() => (this.bubble.hidden = true), ms);
+    this.hideTimer = window.setTimeout(() => {
+      this.bubble.hidden = true;
+      this.bubbleAction = null;
+    }, ms);
   }
 
   private armInputTimer(): void {

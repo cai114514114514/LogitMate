@@ -43,6 +43,14 @@ Tauri 2 (Rust, app/src-tauri)                     WebView (TypeScript, app/src)
 4. `TagParser` strips `[emo:X]`, `[act:Y]` and `[remember: …]` from the text as it streams, holding back a tag split across chunks. Emotions map to the model's expressions (`buildExpressionMap`), gestures play out and back, facts go to SQLite.
 5. Replies are stored with their tags, so later turns keep the same style. *Forget Everything…* clears messages, facts and mood.
 
+## Agent Face (M2.5)
+- **Bridge**: `agents.rs` listens on `127.0.0.1:<random port>` and writes `{port, token}` to `~/Library/Application Support/com.logit.mate/agent-bridge.json` (mode 600). Requests need the token header; anything else gets 401/404.
+- **Hook script**: `~/.logitmate/bin/logitmate-hook` POSTs the agent's hook JSON in the background with a 0.5 s timeout and always exits 0 at once, so it can never slow down or break an agent, and does nothing when LogitMate is not running.
+- **Connecting** (*Coding Agents…* menu, with confirmation): Claude Code gets one more hook group per event next to existing ones; Codex `notify` (a single command) becomes `logitmate-hook codex-chain <previous command…>`, which forwards the event and then execs the previous command with its original arguments. Each file is backed up before the first change; *Disconnect* restores the previous entries.
+- **Privacy**: `normalize` keeps only agent, session, project folder name, tool name, the agent's own notification text and TERM_PROGRAM. Prompts, tool input and output never leave the bridge.
+- **Reactions** (`AgentFace`): working → the thinking face until 4 s of quiet; waiting for you → an aside in her voice whose bubble opens the agent's terminal (known terminals only, by bundle id); turns over 45 s → an upbeat "done" line; 3 failures in a row → encouragement (once per 10 min). Asides are not stored in the conversation and wait while you are talking to her.
+- **Other agents** (e.g. Logit-Harness): pipe Claude-Code-shaped hook JSON (`hook_event_name`, `session_id`, `cwd`, `tool_name`, `message`) into `logitmate-hook <agent-name>`.
+
 ## Emotion engine v1
 `Mood` keeps mood (−1..1, half-life 10 min toward 0.2), energy (from the local hour) and affection (pats +1, chats +0.5), persisted in localStorage. It feeds the prompt, greetings (first meeting, or back after 6 h) and idle fidgets (after 4 quiet minutes, more often when energetic).
 

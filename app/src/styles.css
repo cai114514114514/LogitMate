@@ -116,3 +116,13 @@ body {
 [hidden] {
   display: none !important;
 }
+
+#bubble.actionable {
+  cursor: pointer;
+  border-color: var(--accent);
+}
+
+#bubble.actionable::after {
+  content: " ↗";
+  color: var(--accent);
+}

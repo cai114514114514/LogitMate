@@ -3,11 +3,12 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Menu ids the webview handles itself (sizing, model choice, about).
-const FORWARDED: &[&str] = &["chat", "size-s", "size-m", "size-l", "pick-model", "forget", "about"];
+const FORWARDED: &[&str] = &["chat", "agents", "size-s", "size-m", "size-l", "pick-model", "forget", "about"];
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let chat = MenuItem::with_id(app, "chat", "Talk to Her…", true, None::<&str>)?;
     let forget = MenuItem::with_id(app, "forget", "Forget Everything…", true, None::<&str>)?;
+    let agents = MenuItem::with_id(app, "agents", "Coding Agents…", true, None::<&str>)?;
     let toggle = MenuItem::with_id(app, "toggle", "Show / Hide", true, None::<&str>)?;
     let on_top = CheckMenuItem::with_id(app, "on-top", "Always on Top", true, true, None::<&str>)?;
     let size = Submenu::with_items(
@@ -27,6 +28,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         app,
         &[
             &chat,
+            &agents,
             &PredefinedMenuItem::separator(app)?,
             &toggle,
             &on_top,

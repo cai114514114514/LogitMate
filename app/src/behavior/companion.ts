@@ -40,6 +40,37 @@ export class Companion {
     await this.turn(note, true);
   }
 
+  /**
+   * A one-line aside in her own voice (agent finished, agent needs you…), not kept in the
+   * conversation. While the user is talking to her she stays quiet. Falls back to `fallback`.
+   */
+  async remark(note: string, fallback: string, onClick?: () => void): Promise<void> {
+    const { chat, ui, reactions, map } = this.d;
+    if (chat.busy) return;
+    try {
+      const reply = await chat.send(
+        note,
+        {
+          onText: (visible) => ui.say(visible, true, onClick),
+          onEmotion: (emotion) => {
+            const name = map.emotions.get(emotion);
+            if (name) reactions.express(name, 0);
+          },
+          onAction: (action) => {
+            const gesture = map.actions.get(action);
+            if (gesture) reactions.gesture(gesture);
+          },
+        },
+        { hidden: true, store: false },
+      );
+      if (!reply) ui.say(fallback, false, onClick);
+      else ui.done();
+    } catch {
+      ui.say(fallback, false, onClick);
+    }
+    reactions.relax(LINGER_MS);
+  }
+
   noteInteraction(): void {
     this.lastInteraction = Date.now();
   }
