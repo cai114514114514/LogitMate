@@ -21,7 +21,7 @@ import { InvalidMotionQueueEntryHandleValue } from "@framework/motion/cubismmoti
 import { CubismPhysicsUpdater } from "@framework/motion/cubismphysicsupdater";
 import { CubismPoseUpdater } from "@framework/motion/cubismposeupdater";
 import { CubismUpdateScheduler } from "@framework/motion/cubismupdatescheduler";
-import { physicsRoutes, type Route } from "../model/physicsRoutes";
+import { physicsOutputs, physicsRoutes, type Route } from "../model/physicsRoutes";
 import type { Exp3Parameter } from "../model/semantics";
 import type { NormalizedModel } from "../model/types";
 import { Priority } from "./priority";
@@ -32,6 +32,19 @@ export { Priority };
 export const SHADER_PATH = "/cubism/shaders/";
 
 const NEUTRAL_EXPRESSION = "__neutral";
+
+/**
+ * Logical limbs used by procedural gestures, -1..1 (+ = away from the body), and the parameter
+ * names common rigs use for them: Cubism samples, then VTube Studio-style rigs.
+ */
+const LIMBS: Record<string, string[]> = {
+  ArmL: ["ParamArmLA", "ParamArmL", "LArm"],
+  ArmR: ["ParamArmRA", "ParamArmR", "RArm"],
+  ForearmL: ["ParamArmLB", "LForearm"],
+  ForearmR: ["ParamArmRB", "RForearm"],
+  HandL: ["ParamHandL", "LHand"],
+  HandR: ["ParamHandR", "RHand"],
+};
 
 /** What the procedural layer (behavior/life.ts) wants this frame. */
 export interface ProceduralPose {
@@ -75,6 +88,10 @@ export class PetModel extends CubismUserModel {
   private expressions = new Map<string, ACubismMotion>();
   private expressionParams = new Map<string, Exp3Parameter[]>();
   private routes = new Map<string, Route>();
+  /** Physics outputs; offsets to them that can't be routed are added after physics runs. */
+  private physicsOut = new Set<string>();
+  /** Logical limb -> this model's parameter and the value of a full (1.0) movement. */
+  private limbs = new Map<string, Route>();
   private idCache = new Map<string, CubismIdHandle>();
 
   /** Horizontal sway from being dragged around, -1..1. Physics turns it into hair/skirt motion. */
@@ -106,6 +123,22 @@ export class PetModel extends CubismUserModel {
   private addRouted(name: string, value: number): void {
     const r = this.route(name);
     this._model.addParameterValueById(this.id(r.id), value * r.scale);
+  }
+
+  private hasParameter(name: string): boolean {
+    const i = this._model.getParameterIndex(this.id(name));
+    return i >= 0 && i < this._model.getParameterCount();
+  }
+
+  /** Finds each logical limb on this rig and how far a full movement goes. */
+  private resolveLimbs(): void {
+    const m = this._model;
+    for (const [limb, names] of Object.entries(LIMBS)) {
+      const name = names.find((n) => this.hasParameter(n));
+      if (!name) continue;
+      const i = m.getParameterIndex(this.id(name));
+      this.limbs.set(limb, { id: name, scale: (m.getParameterMaximumValue(i) - m.getParameterMinimumValue(i)) / 2 });
+    }
   }
 
   static async load(gl: WebGL2RenderingContext, normalized: NormalizedModel, opts: LoadOptions): Promise<PetModel> {
@@ -147,9 +180,12 @@ export class PetModel extends CubismUserModel {
     if (s.getPhysicsFileName()) {
       const buf = await fetchBuffer(opts.url(s.getPhysicsFileName()));
       try {
-        this.routes = physicsRoutes(JSON.parse(decoder.decode(buf)));
+        const json = JSON.parse(decoder.decode(buf));
+        this.routes = physicsRoutes(json);
+        this.physicsOut = physicsOutputs(json);
       } catch {
         this.routes.clear();
+        this.physicsOut.clear();
       }
       const head = [P.ParamAngleX, P.ParamBodyAngleX].filter((id) => this.routes.has(id));
       progress(`physics routes: ${this.routes.size}${head.length ? ` (${head.map((id) => `${id}→${this.routes.get(id)!.id}`).join(", ")})` : ""}`);
@@ -173,12 +209,13 @@ export class PetModel extends CubismUserModel {
     const routed = (name: string) => ({ id: this.id(this.route(name).id), scale: this.route(name).scale });
     const breath = (name: string, offset: number, peak: number, cycle: number, weight: number) =>
       new BreathParameterData(routed(name).id, offset, peak, cycle, weight);
+    // Gentler than the official sample's sway (15/8/10 degrees): the life layer adds its own drift.
     this._breath = CubismBreath.create();
     this._breath.setParameters([
-      breath(P.ParamAngleX, 0.0, 15.0, 6.5345, 0.5),
-      breath(P.ParamAngleY, 0.0, 8.0, 3.5345, 0.5),
-      breath(P.ParamAngleZ, 0.0, 10.0, 5.5345, 0.5),
-      breath(P.ParamBodyAngleX, 0.0, 4.0, 15.5345, 0.5),
+      breath(P.ParamAngleX, 0.0, 3.0, 6.5345, 0.5),
+      breath(P.ParamAngleY, 0.0, 2.0, 3.5345, 0.5),
+      breath(P.ParamAngleZ, 0.0, 2.0, 5.5345, 0.5),
+      breath(P.ParamBodyAngleX, 0.0, 2.0, 15.5345, 0.5),
       breath(P.ParamBreath, 0.5, 0.5, 3.2345, 1),
     ]);
     this.scheduler.addUpdatableList(new CubismBreathUpdater(this._breath));
@@ -198,6 +235,9 @@ export class PetModel extends CubismUserModel {
     ]);
     this.scheduler.addUpdatableList(new CubismLookUpdater(this.look, this._dragManager));
     this.scheduler.sortUpdatableList();
+
+    this.resolveLimbs();
+    progress(`limbs: ${[...this.limbs.keys()].join(" ") || "none"}`);
 
     const layout = new Map<string, number>();
     s.getLayoutMap(layout);
@@ -359,7 +399,20 @@ export class PetModel extends CubismUserModel {
       this.addRouted(P.ParamBodyAngleX, this.sway * 6);
     }
     const pose = this.procedural;
-    for (const name in pose.offsets) this.addRouted(name, pose.offsets[name]);
+    const afterPhysics: [string, number][] = [];
+    for (const name in pose.offsets) {
+      const limb = this.limbs.get(name);
+      if (limb) {
+        // Limbs are never routed: their physics inputs move the whole body.
+        const value = pose.offsets[name] * limb.scale;
+        if (this.physicsOut.has(limb.id)) afterPhysics.push([limb.id, value]);
+        else model.addParameterValueById(this.id(limb.id), value);
+      } else if (!this.routes.has(name) && this.physicsOut.has(name)) {
+        afterPhysics.push([name, pose.offsets[name]]);
+      } else {
+        this.addRouted(name, pose.offsets[name]);
+      }
+    }
     if (pose.gaze) {
       // Eyes jump ahead of the head, which catches up through the smoothed look target.
       const lead = (v: number) => Math.max(-1, Math.min(1, v));
@@ -368,6 +421,7 @@ export class PetModel extends CubismUserModel {
     }
 
     this.scheduler.onLateUpdate(model, dt);
+    for (const [id, value] of afterPhysics) model.addParameterValueById(this.id(id), value);
     if (pose.eyeOpen < 1) {
       for (const id of this.eyeBlinkIds) model.multiplyParameterValueById(id, pose.eyeOpen);
     }

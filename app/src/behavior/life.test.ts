@@ -29,6 +29,19 @@ describe("Talker", () => {
     expect(t.update(1 / 60).open).toBe(0);
   });
 
+  it("stresses the first syllable of each phrase and every fourth after it", () => {
+    const t = new Talker(() => 0.5);
+    t.feed("一二三四五六，七八");
+    const stresses: number[] = [];
+    let syllable = 0;
+    while (t.talking) {
+      const m = t.update(1 / 120);
+      if (m.stress) stresses.push(syllable);
+      if (m.open > 0.99 * 0.775) syllable++;
+    }
+    expect(stresses.length).toBe(3); // 一, 五, 七
+  });
+
   it("never falls far behind a fast stream", () => {
     const t = new Talker(() => 0.5);
     t.feed("字".repeat(500));
@@ -91,7 +104,7 @@ describe("Life", () => {
     const life = new Life(seeded(7));
     life.energy = 0.3;
     const events: string[] = [];
-    life.onEvent = (e) => events.push(e);
+    life.onEvent = (e) => events.push(e.type);
     let frame = life.update(0.1, away);
     for (let t = 0; t < 200; t += 0.5) frame = life.update(0.5, away);
     expect(events).toContain("dozed");
@@ -118,7 +131,7 @@ describe("Life", () => {
     life.energy = 0.2;
     life.working = true;
     const events: string[] = [];
-    life.onEvent = (e) => events.push(e);
+    life.onEvent = (e) => events.push(e.type);
     for (let t = 0; t < 900; t += 1) life.update(1, away);
     expect(events).not.toContain("dozed");
   });

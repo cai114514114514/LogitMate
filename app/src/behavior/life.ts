@@ -35,7 +35,10 @@ export interface LifeFrame {
   eyeOpen: number;
 }
 
-export type LifeEvent = "petted" | "dizzy" | "dozed" | "woke";
+export type LifeEvent =
+  | { type: "petted" | "dizzy" | "dozed" | "woke" }
+  /** Time for one of the model's own hand poses, held for about `ms`. */
+  | { type: "hands"; ms: number };
 
 type Random = () => number;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -86,15 +89,16 @@ export class Gaze {
     let hold: number;
     switch (mode) {
       case "idle":
-        if (r() < 0.45) {
-          // Back to the user.
+        // Calm: long looks at the user, short glances away, and the head mostly stays put.
+        headShare = 0.3;
+        if (r() < 0.55) {
           this.eye = { x: jitter(0.08), y: 0.05 + jitter(0.06) };
-          hold = 1.8 + r() * 2.4;
+          hold = 2.5 + r() * 3.5;
         } else {
           const angle = r() * Math.PI * 2;
-          const mag = Math.min(0.85, 0.2 - Math.log(1 - r() * 0.95) * 0.25);
+          const mag = Math.min(0.75, 0.2 - Math.log(1 - r() * 0.95) * 0.2);
           this.eye = { x: Math.cos(angle) * mag, y: Math.sin(angle) * mag * 0.6 - 0.05 };
-          hold = 0.8 + r() * 1.6;
+          hold = 1 + r() * 1.5;
         }
         break;
       case "around": {
@@ -156,6 +160,8 @@ interface Beat {
   vowel: string;
   /** Last beat of a sentence: a small nod. */
   end?: boolean;
+  /** Stressed syllable: a hand beat. */
+  stress?: boolean;
 }
 
 const VOWELS = ["ParamA", "ParamI", "ParamU", "ParamE", "ParamO"];
@@ -172,6 +178,7 @@ export class Talker {
   private beat: Beat | null = null;
   private phase = 0;
   private latin = 0;
+  private sincePause = 0;
 
   constructor(private random: Random) {}
 
@@ -201,8 +208,13 @@ export class Talker {
   }
 
   /** Mouth openness 0..1, vowel shape weights, a small head bob, and whether a sentence just ended. */
-  update(dt: number): { open: number; vowels: Record<string, number>; bob: number; sentenceEnd: boolean } {
-    const out = { open: 0, vowels: {} as Record<string, number>, bob: 0, sentenceEnd: false };
+  /** Seconds of speech still queued. */
+  get remaining(): number {
+    return this.queue.reduce((s, b) => s + (b.kind === "syllable" ? b.dur / SPEECH_RATE : b.dur), 0);
+  }
+
+  update(dt: number): { open: number; vowels: Record<string, number>; bob: number; sentenceEnd: boolean; stress: boolean } {
+    const out = { open: 0, vowels: {} as Record<string, number>, bob: 0, sentenceEnd: false, stress: false };
     const rate = SPEECH_RATE * (1 + Math.max(0, this.queue.length - 20) / 30);
     let left = dt;
     while (left > 0) {
@@ -210,6 +222,7 @@ export class Talker {
         this.beat = this.queue.shift() ?? null;
         this.phase = 0;
         if (!this.beat) return out;
+        if (this.beat.stress) out.stress = true;
       }
       const length = this.beat.kind === "syllable" ? this.beat.dur / rate : this.beat.dur;
       const step = Math.min(left, (1 - this.phase) * length);
@@ -231,6 +244,8 @@ export class Talker {
   }
 
   private push(b: Beat): void {
+    if (b.kind === "pause") this.sincePause = 0;
+    else b.stress = this.sincePause++ % 4 === 0;
     this.queue.push(b);
   }
 
@@ -311,6 +326,8 @@ export class Life {
   working = false;
   /** Waiting for a reply, or a coding agent is working: she looks up, thinking. */
   thinking = false;
+  /** How many hand poses the model has (its own motions); 0 means procedural arms only. */
+  handPoses = 0;
   onEvent: (e: LifeEvent) => void = () => {};
 
   private t = 0;
@@ -327,6 +344,11 @@ export class Life {
   private smile = 0;
   private petLevel = 0;
   private petTilt = 0;
+  private shift = 0;
+  private shiftTarget = 0;
+  private nextShift = 6;
+  private lastBeat = 0;
+  private beatSide = 1;
 
   constructor(private random: Random = Math.random) {
     this.gaze = new Gaze(random);
@@ -348,8 +370,13 @@ export class Life {
 
   /** Text she is saying right now (appended to what she already said). */
   speak(text: string, quiet = false): void {
+    const starting = !this.talker.talking;
     this.talker.feed(text, quiet);
     this.noteInteraction();
+    // Now and then she talks with her hands, using one of the model's own poses.
+    if (starting && !quiet && this.handPoses > 0 && this.random() < 0.35) {
+      this.onEvent({ type: "hands", ms: Math.max(2500, Math.min(8000, this.talker.remaining * 1000 + 1500)) });
+    }
   }
 
   stopSpeaking(): void {
@@ -372,10 +399,10 @@ export class Life {
 
     // Cursor gestures.
     const sense = this.sense.feed(p, t, dt);
-    if (sense.startedPetting) this.onEvent("petted");
+    if (sense.startedPetting) this.onEvent({ type: "petted" });
     if (sense.dizzy) {
       this.play("dizzy");
-      this.onEvent("dizzy");
+      this.onEvent({ type: "dizzy" });
     }
     if (sense.petting || cursorActive) this.lastInteraction = Math.max(this.lastInteraction, t - p.stillMs / 1000);
 
@@ -384,7 +411,7 @@ export class Life {
     if (!this.dozing && !this.talking && !this.working && quietFor > (this.energy < 0.4 ? DOZE_AFTER_TIRED_S : DOZE_AFTER_S)) {
       this.dozing = true;
       this.nextJolt = t + 10 + r() * 10;
-      this.onEvent("dozed");
+      this.onEvent({ type: "dozed" });
     } else if (this.dozing && cursorActive && p.stillMs < 300) {
       this.wake(p.near);
     }
@@ -420,11 +447,23 @@ export class Life {
 
     // Small, never-repeating head and body drift; livelier with more energy.
     const liveliness = 0.6 + 0.6 * this.energy;
-    add("ParamAngleX", drift(t, 0.31, 0.53, 0.0) * 3 * liveliness);
-    add("ParamAngleY", drift(t, 0.27, 0.71, 1.7) * 2 * liveliness);
-    add("ParamAngleZ", drift(t, 0.23, 0.61, 3.1) * 2.5 * liveliness);
-    add("ParamBodyAngleX", drift(t, 0.17, 0.43, 4.2) * 2 * liveliness);
-    add("ParamBodyAngleZ", drift(t, 0.19, 0.37, 5.3) * 1.5 * liveliness);
+    add("ParamAngleX", drift(t, 0.31, 0.53, 0.0) * 2 * liveliness);
+    add("ParamAngleY", drift(t, 0.27, 0.71, 1.7) * 1.5 * liveliness);
+    add("ParamAngleZ", drift(t, 0.23, 0.61, 3.1) * 1.5 * liveliness);
+    add("ParamBodyAngleX", drift(t, 0.17, 0.43, 4.2) * 1.5 * liveliness);
+    add("ArmL", drift(t, 0.21, 0.47, 6.1) * 0.08);
+    add("ArmR", drift(t, 0.19, 0.53, 7.7) * 0.08);
+
+    // Shifting her weight from one side to the other now and then, as people do standing still.
+    if (t >= this.nextShift) {
+      this.shiftTarget = this.dozing || this.working ? 0 : (r() < 0.5 ? -1 : 1) * (0.4 + r() * 0.6);
+      this.nextShift = t + 8 + r() * 14;
+    }
+    this.shift = ease(this.shift, this.shiftTarget, dt, 1.4);
+    add("ParamBodyAngleZ", this.shift * 3);
+    add("ParamAngleZ", -this.shift * 2);
+    add("ArmL", this.shift * 0.1);
+    add("ArmR", -this.shift * 0.1);
 
     // Dozing: head droops, body slumps.
     if (this.dozeLevel > 0.01) {
@@ -457,6 +496,11 @@ export class Life {
       add("ParamAngleY", mouth.bob);
     }
     if (mouth.sentenceEnd && r() < 0.6) this.play("nod", 0.45);
+    if (mouth.stress && t - this.lastBeat > 0.7 && r() < 0.55) {
+      this.beatSide = r() < 0.7 ? this.beatSide : -this.beatSide;
+      this.play(this.beatSide > 0 ? "beatR" : "beatL", 0.6 + r() * 0.4);
+      this.lastBeat = t;
+    }
 
     // Gestures.
     let gestureClose = 0;
@@ -476,7 +520,7 @@ export class Life {
     this.dozing = false;
     this.lastInteraction = this.t;
     if (startled) this.play("hop");
-    this.onEvent("woke");
+    this.onEvent({ type: "woke" });
   }
 
   private idleAct(): void {
@@ -490,6 +534,7 @@ export class Life {
       : [
           [() => (this.aroundUntil = this.t + 2.5 + r() * 1.5), 3],
           [() => this.play("tilt"), 2],
+          [() => this.onEvent({ type: "hands", ms: 4000 + r() * 8000 }), this.handPoses > 0 ? 2.5 : 0],
           [() => this.play("wiggle", 0.7), this.mood > 0.1 ? 2 : 0.5],
           [() => this.hum(), this.mood > 0.15 ? 1.5 : 0.3],
           [() => this.play("stretch"), 0.8],
@@ -505,7 +550,7 @@ export class Life {
 
   /** Humming to herself: a gentle sway with a quiet, closed-mouth "mm mm". */
   private hum(): void {
-    this.play("wiggle", 0.5);
+    this.play("sway");
     this.talker.feed("嗯嗯嗯嗯嗯", true);
   }
 }

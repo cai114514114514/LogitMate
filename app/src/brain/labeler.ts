@@ -146,6 +146,11 @@ function sideBySide(rest: Still, still: Still, box: Box, zoom: Box | null): stri
   return canvas.toDataURL("image/jpeg", 0.85);
 }
 
+/** The whole still as a JPEG data URL (development tools). */
+export function stillJpeg(s: Still): string {
+  return crop(s, { x0: 0, y0: 0, x1: s.width, y1: s.height }).toDataURL("image/jpeg", 0.85);
+}
+
 /** Cuts `box` out of a still, flattened onto the background (stills are premultiplied). */
 function crop(s: Still, box: Box): HTMLCanvasElement {
   const w = boxWidth(box);

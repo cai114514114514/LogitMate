@@ -20,6 +20,12 @@ interface PhysicsJson {
   }[];
 }
 
+/** Every parameter physics writes. Offsets to these that can't be routed are added after physics. */
+export function physicsOutputs(physics: unknown): Set<string> {
+  const settings = (physics as PhysicsJson | null)?.PhysicsSettings ?? [];
+  return new Set(settings.flatMap((s) => (s.Output ?? []).map((o) => o.Destination?.Id ?? "")).filter(Boolean));
+}
+
 /** Share of a setting's input weight an input needs to stand for the whole output. */
 const DOMINANT = 0.5;
 

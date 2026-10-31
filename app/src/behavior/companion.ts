@@ -9,8 +9,6 @@ import type { Reactions } from "./reactions";
 
 /** After a reply, hold the last expression this long before relaxing. */
 const LINGER_MS = 4000;
-/** Quiet time before she starts fidgeting on her own. */
-const IDLE_BEFORE_FIDGET_MS = 4 * 60_000;
 
 export interface CompanionDeps {
   chat: ChatSession;
@@ -23,7 +21,6 @@ export interface CompanionDeps {
 }
 
 export class Companion {
-  private lastInteraction = Date.now();
   /** In a focus session: no idle fidgeting. */
   focused = false;
 
@@ -31,7 +28,6 @@ export class Companion {
 
   /** Something the user typed. */
   async talk(text: string): Promise<void> {
-    this.noteInteraction();
     this.d.mood.onChat();
     await this.turn(text, false);
   }
@@ -79,18 +75,9 @@ export class Companion {
     else this.d.procedural?.(action);
   }
 
-  noteInteraction(): void {
-    this.lastInteraction = Date.now();
-  }
-
-  /** Call periodically; lets mood drift and occasionally fidgets when nobody is around. */
+  /** Call periodically; lets mood drift. Idle fidgeting lives in behavior/life.ts. */
   tick(seconds: number): void {
     this.d.mood.tick(seconds);
-    const quiet = Date.now() - this.lastInteraction > IDLE_BEFORE_FIDGET_MS;
-    if (quiet && !this.focused && !this.d.chat.busy && Math.random() < 0.15 * this.d.mood.energy()) {
-      if (Math.random() < 0.5) this.d.reactions.gesture();
-      else this.d.reactions.pat();
-    }
   }
 
   private async turn(text: string, hidden: boolean): Promise<void> {

@@ -59,8 +59,8 @@ export class Reactions {
     this.expressionTimer = window.setTimeout(() => this.model.clearExpression(), ms);
   }
 
-  /** Plays a gesture out and back; a random one when none is given. */
-  gesture(g: Gesture | undefined = pick(this.gestures)): void {
+  /** Plays a gesture out, holds it for `holdMs`, and back; a random one when none is given. */
+  gesture(g: Gesture | undefined = pick(this.gestures), holdMs = 2500 + Math.random() * 3000): void {
     if (this.busy) return;
     if (!g) return this.pat();
     this.busy = true;
@@ -69,7 +69,7 @@ export class Reactions {
       setTimeout(() => {
         if (g.close) this.model.startMotion(g.close.group, g.close.index, Priority.Normal);
         this.busy = false;
-      }, 900);
+      }, holdMs);
     });
     if (!started) this.busy = false;
   }

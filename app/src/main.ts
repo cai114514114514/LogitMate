@@ -13,7 +13,7 @@ import { Mood } from "./behavior/mood";
 import { Reactions } from "./behavior/reactions";
 import { ChatSession } from "./brain/chat";
 import { buildExpressionMap, type ExpressionMap } from "./brain/expressions";
-import { learnExpressions, loadLearned } from "./brain/labeler";
+import { learnExpressions, loadLearned, stillJpeg } from "./brain/labeler";
 import { systemPrompt } from "./brain/prompt";
 import { readModelSource } from "./model/loader";
 import { profileKey, type LearnedProfile } from "./model/semantics";
@@ -320,21 +320,22 @@ async function main(): Promise<void> {
     void ui.openInput();
   });
   const pick = <T>(list: T[]) => list[Math.floor(Math.random() * list.length)];
+  life.handPoses = map.actions.size;
   life.onEvent = (e) => {
-    if (e === "petted") {
+    if (e.type === "petted") {
       mood.onPat();
-      companion.noteInteraction();
       flash(mood.state.affection > 20 ? "love" : "happy", 2500);
-    } else if (e === "dizzy") {
+    } else if (e.type === "dizzy") {
       flash("confused", 2500);
-    } else if (e === "woke") {
+    } else if (e.type === "woke") {
       flash("surprised", 1200);
+    } else if (e.type === "hands") {
+      reactions.gesture(undefined, e.ms);
     }
   };
 
   const interaction = new Interaction(stage, box, {
     onTap: (fy) => {
-      companion.noteInteraction();
       life.noteInteraction();
       if (fy < 0.32) {
         mood.onPat();
@@ -429,11 +430,27 @@ async function main(): Promise<void> {
   if (import.meta.env.DEV) {
     // Lets scripts drive a chat turn: echo "hi" > /tmp/logitmate-say.txt
     // or a focus session: echo "/focus 0.5 write tests" > /tmp/logitmate-say.txt
+    // or parameter ranges:  echo "/params ParamAngleX AngleX" > /tmp/logitmate-say.txt
     setInterval(async () => {
       const text = await invoke<string | null>("debug_take_input");
       const focusCmd = text?.match(/^\/focus\s+([\d.]+)\s+(.+)$/);
-      if (focusCmd) startFocus(focusCmd[2], Number(focusCmd[1]));
-      else if (text) void companion.talk(text);
+      const playCmd = text?.match(/^\/play\s+(\w+)$/);
+      if (playCmd && playCmd[1] in GESTURES) life.play(playCmd[1] as GestureName);
+      else if (playCmd?.[1] === "hands") reactions.gesture(undefined, 4000);
+      const paramsCmd = text?.match(/^\/params\s+(.+)$/);
+      // Stills posed with given values, saved as /tmp/logitmate-probe-<n>.jpg: "/probe LArm=1 LArm=-1,RArm=1"
+      const probeCmd = text?.match(/^\/probe\s+(.+)$/);
+      if (probeCmd) {
+        for (const [i, spec] of probeCmd[1].split(/\s+/).entries()) {
+          const values = Object.fromEntries(spec.split(",").map((kv) => [kv.split("=")[0], Number(kv.split("=")[1])]));
+          const still = await stage.still(() => model.poseStill(null, values));
+          const jpeg = stillJpeg(still);
+          await invoke("debug_save_image", { name: `probe-${i}`, base64: jpeg.slice(jpeg.indexOf(",") + 1) });
+        }
+        console.info("[pet] probe done");
+      } else if (paramsCmd) console.info(`[pet] params\n${model.describeParameters(paramsCmd[1].split(/[ ,]+/))}`);
+      else if (focusCmd) startFocus(focusCmd[2], Number(focusCmd[1]));
+      else if (text && !playCmd) void companion.talk(text);
     }, 1000);
   }
   const firstRun = mood.state.affection === 0 && (await invoke<unknown[]>("memory_recent", { limit: 1 })).length === 0;
